@@ -1,0 +1,40 @@
+{
+  "_comment": "SIMULATION / FIXTURE. Captured from Binance public REST at 2026-09-05T12:29:47Z while the endpoints were reachable from this machine. Replayed values MUST be classified SIMULATION, never BINANCE_REPORTED, because they are a recording and not a live read. Field shapes here are the only verified evidence of the public REST response structure this project holds.",
+  "_classification": "SIMULATION",
+  "_source": "SIMULATOR",
+  "_captured_at": "2026-09-05T12:29:47.964Z",
+  "_endpoints_used": [
+    "GET https://api.binance.com/api/v3/ticker/24hr",
+    "GET https://fapi.binance.com/fapi/v1/premiumIndex",
+    "GET https://api.binance.com/api/v3/depth",
+    "GET https://api.binance.com/api/v3/klines",
+    "GET https://api.binance.com/api/v3/trades",
+    "GET https://fapi.binance.com/fapi/v1/openInterest"
+  ],
+  "symbol": "BTCUSDT",
+  "fetchedAt": "2026-09-05T12:29:47.964Z",
+  "source": "binance-public-rest",
+  "lastPrice": 79654.97,
+  "markPrice": 79625.99088406,
+  "indexPrice": 79660.42978261,
+  "priceChangePercent": -2.059,
+  "volume24h": 1217231556.39846,
+  "fundingRate": 0.00003076,
+  "nextFundingTime": 1788624000000,
+  "openInterest": 107216.807,
+  "orderBookImbalance": -0.4786055695610405,
+  "bestBid": 79654.96,
+  "bestAsk": 79654.97,
+  "realizedVolatility": 0.3671234376075744,
+  "flowToxicity": 0.676915436965524,
+  "sma24": 79575.99541666667,
+  "sma168": 78629.34464285715,
+  "range24h": {
+    "high": 79877.07,
+    "low": 78660
+  },
+  "range7d": {
+    "high": 82300,
+    "low": 76264
+  }
+}

@@ -1,0 +1,12 @@
+node_modules/
+.env
+.env.*
+*.key
+*.pem
+secrets/
+credentials.json
+.DS_Store
+Thumbs.db
+*.log
+coverage/
+apex-demo-output.txt

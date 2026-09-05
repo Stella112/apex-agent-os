@@ -1,0 +1,159 @@
+APEX VERIFICATION HARNESS
+Started 2026-09-05T18:00:36.658Z
+Target  http://127.0.0.1:4173
+
+── 4 · REAL BINANCE DATA ───────────────────────────────────────
+
+  BTCUSDT (live, not fixture)
+    Bid            80055.99
+    Ask            80056
+    Mark           80030.7
+    Funding        0.0000254
+    Source         BINANCE (public REST via apex-resolver)
+    Timestamp      2026-09-05T18:00:39.648Z
+    Age            2 ms
+    Classification BINANCE_REPORTED
+
+  [PASS      ] REAL_BINANCE_DATA
+               mark 80030.7, age 2ms, latency 1273ms
+
+── 5 · QUANT AND PROVENANCE ────────────────────────────────────
+  [PASS      ] QUANT
+               34 evidence keys from live data
+  [PASS      ] DATA_PROVENANCE
+               raw=BINANCE_REPORTED/binance, derived=APEX_ESTIMATE formula="spread_bps = ((ask - bid) / mid) * 10000"
+  [PASS      ] NO_ESTIMATE_MISLABELLED_AS_BINANCE
+               no APEX-derived field claims Binance as its source
+
+── 6 · BULL, BEAR, EVIDENCE VALIDATION ─────────────────────────
+    input_hash     8278d161346081b8a47ee786…
+    bull           deterministic-bull v1.0.0 → ADD @ 0.95
+    bear           deterministic-bear v1.0.0 → STAND_DOWN @ 0.95
+  [PASS      ] BULL
+               4 validated claims, attributed to deterministic-bull v1.0.0
+  [PASS      ] BEAR
+               4 validated claims, attributed to deterministic-bear v1.0.0
+  [PASS      ] AGENTS_SAW_IDENTICAL_EVIDENCE
+               both input_hash 8278d161346081b8…
+  [PASS      ] EVIDENCE_VALIDATION
+               14 citations all resolve; invented key market.ema_200 → UNSUPPORTED_CLAIM
+  [PASS      ] DEBATE
+               DIRECTIONAL: Bull wants ADD while Bear wants STAND_DOWN
+
+── 21 · PORTFOLIO ROUTER ───────────────────────────────────────
+    ROUTE            SIDE        SCORE   STATUS
+    CARRY            SHORT           —   REJECTED
+    REVERSE_CARRY    SHORT           —   REJECTED
+    DIRECTIONAL      LONG            —   REJECTED
+    PARK             —        0.00 bps   SCORED
+    STAND_DOWN       —        0.00 bps   SCORED
+    selected: PARK
+
+    against a policy-compliant book, execution hypothetically verified:
+    CARRY            SHORT  -31.42 bps   REJECTED
+    REVERSE_CARRY    SHORT  -26.81 bps   SCORED
+    DIRECTIONAL      LONG    -4.74 bps   SCORED
+    PARK             —        0.00 bps   SCORED
+    STAND_DOWN       —        0.00 bps   SCORED
+    selected: PARK
+  [PASS      ] PORTFOLIO_ROUTER
+               5 routes on live data; breached book → PARK, compliant book → PARK; scores bounded and reproducible
+  [PASS      ] ROUTER_REJECTS_NON_COMPLIANT_BOOK
+               position routes rejected: name exposure 160.06% exceeds the 15% cap
+  [PASS      ] ROUTER_RESPECTS_EXECUTION_GATE
+               execution unverified, so only no-position routes are selectable
+
+── 7 · REFEREE, CONSTITUTION ───────────────────────────────────
+  [PASS      ] CONSTITUTION
+               apex-v1 v1.1.0 sha256 c1fb1c8854fd6c6e…
+    safe proposal      → APPROVE
+    reckless proposal  → DENY
+    reckless breaches  → LIQUIDATION_DISTANCE, RISK_BUDGET, CONCENTRATION, GROSS_LEVERAGE
+  [PASS      ] REFEREE
+               safe=APPROVE, reckless=DENY on 4 rules, all checks expose rule/observed/limit
+  [PASS      ] REFEREE_DETERMINISTIC
+               identical inputs reproduce an identical rule-by-rule verdict without any model call
+
+── 8 · LIQUIDATION MATH ────────────────────────────────────────
+    ok   1 binance-reported
+    ok   2 apex estimate
+    ok   3 unavailable
+    ok   4 stale
+    ok   5 invalid context
+    ok   6 boundary at 15%
+  [PASS      ] LIQUIDATION_MATH
+               all six classifications distinct; estimate never labelled BINANCE_REPORTED
+
+── 11 · API ENDPOINTS ──────────────────────────────────────────
+    200  /api/health                  LIVE
+         schema: ok, constitution, binance, writes_enabled, withdrawal_scope
+    200  /api/market                  LIVE
+         schema: symbol, execution_mode, source, fetched_at, worst_freshness
+    200  /api/account                 CAPABILITY_UNAVAILABLE
+         schema: status, classification, reason, balances, positions
+    200  /api/journal?mode=replay     SIMULATION (replay)
+         schema: verification, events
+  [PASS      ] API_ENDPOINTS
+               4/4 returned 200; no 404s
+
+── 12 · DASHBOARD DATA PATH ────────────────────────────────────
+    market panel   ← 34 live evidence keys
+    bull panel     ← ADD (4 claims)
+    bear panel     ← STAND_DOWN (3 claims)
+    referee panel  ← APPROVE (9 rules)
+    journal panel  ← 13 events, valid=true
+  [PASS      ] DASHBOARD
+               every panel is API-backed; no hardcoded market values in apex.js or apex.html
+
+── 13 · JOURNAL AND TAMPER DETECTION ───────────────────────────
+    e2.previous_hash == e1.event_hash  → true
+    e3.previous_hash == e2.event_hash  → true
+  [PASS      ] HASH_JOURNAL
+               3 events chained, verify=true
+    after editing event 2 → PAYLOAD_TAMPERED at evt_000002
+  [PASS      ] JOURNAL_TAMPER_DETECTION
+               TAMPERING_DETECTED: PAYLOAD_TAMPERED located at index 1
+
+── 14 · END-TO-END GOLDEN PATH ─────────────────────────────────
+    sequence: CONSTITUTION → MARKET_STATE → QUANT_PACKET → BULL_DECISION → BEAR_DECISION → DEBATE_RESULT → ROUTE_EVALUATION → ROUTE_REJECTION → ROUTE_REJECTION → ROUTE_REJECTION → REFEREE_SIMULATION → REFEREE_DECISION → ROUTE_REJECTION
+  [PASS      ] END_TO_END_GOLDEN_PATH
+               13 events, live market classification, chain valid
+  [PASS      ] HUMAN_EXECUTION_GATE
+               constitution requires confirmation; cycle halted at REFEREE_DENIED with no order submitted
+  [UNVERIFIED] LIVE_BINANCE_EXECUTION
+               no Binance MCP write tool has a published schema; no execution code path exists
+  [NOT_IMPLEMENTED] POST_TRADE_RECONCILIATION
+               unreachable without execution; cannot reconcile a fill that cannot be produced
+
+==================================================================
+APEX FINAL VERIFICATION REPORT
+2026-09-05T18:00:45.646Z
+==================================================================
+REAL_BINANCE_DATA                      PASS
+QUANT                                  PASS
+DATA_PROVENANCE                        PASS
+NO_ESTIMATE_MISLABELLED_AS_BINANCE     PASS
+BULL                                   PASS
+BEAR                                   PASS
+AGENTS_SAW_IDENTICAL_EVIDENCE          PASS
+EVIDENCE_VALIDATION                    PASS
+DEBATE                                 PASS
+PORTFOLIO_ROUTER                       PASS
+ROUTER_REJECTS_NON_COMPLIANT_BOOK      PASS
+ROUTER_RESPECTS_EXECUTION_GATE         PASS
+CONSTITUTION                           PASS
+LIQUIDATION_MATH                       PASS
+REFEREE                                PASS
+REFEREE_DETERMINISTIC                  PASS
+HUMAN_EXECUTION_GATE                   PASS
+LIVE_BINANCE_EXECUTION                 UNVERIFIED
+POST_TRADE_RECONCILIATION              NOT_IMPLEMENTED
+API_ENDPOINTS                          PASS
+HASH_JOURNAL                           PASS
+JOURNAL_TAMPER_DETECTION               PASS
+DASHBOARD                              PASS
+END_TO_END_GOLDEN_PATH                 PASS
+==================================================================
+PASS 22 · FAIL 0 · UNVERIFIED/NOT_IMPLEMENTED 2
+NOT PROVEN: LIVE_BINANCE_EXECUTION, POST_TRADE_RECONCILIATION
+

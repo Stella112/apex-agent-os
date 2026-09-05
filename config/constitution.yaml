@@ -1,0 +1,28 @@
+id: apex-v1
+version: 1.1.0
+
+capital:
+  venue: agentic_subaccount
+  withdrawals_allowed: false
+
+risk:
+  max_order_pct: 5
+  max_name_pct: 15
+  max_leverage: 2
+  max_net_delta_btc: 0.25
+  min_liquidation_distance_pct: 15
+  daily_loss_lock_pct: 3
+  add_if_funding_against: false
+  require_stop_on_levered: true
+
+routing:
+  min_net_carry_bps: 8
+  max_basis_risk_bps: 25
+
+execution:
+  require_human_confirmation: true
+
+data:
+  fresh_ms: 2000
+  aging_ms: 10000
+  stale_ms: 60000

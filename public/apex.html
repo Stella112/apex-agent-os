@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>APEX · Adversarial Portfolio Execution Engine</title>
+    <link rel="stylesheet" href="/apex.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <div class="brand-mark">A</div>
+          <div>
+            <div class="eyebrow">BINANCE AGENT OS · TRACK A</div>
+            <h1>APEX</h1>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <span class="mode-pill" id="mode-pill"><span class="pulse"></span> <span id="mode-label">IDLE</span></span>
+          <span class="scope-pill">WITHDRAW SCOPE: ABSENT</span>
+          <span class="scope-pill" id="writes-pill">WRITES: DISABLED</span>
+        </div>
+      </header>
+
+      <main>
+        <section class="hero">
+          <div>
+            <p class="kicker">ADVERSARIAL PORTFOLIO EXECUTION ENGINE</p>
+            <h2>Let the models fight.<br /><span>Let the math decide.</span></h2>
+            <p class="lede">
+              Agent OS bounds where an agent's funds can go. It does not bound how much can be lost
+              inside that boundary. APEX is the layer that does: two agents argue from identical
+              evidence, and a deterministic Referee simulates the resulting portfolio before
+              anything reaches a human for approval.
+            </p>
+            <div class="proposal-picker">
+              <span class="picker-label">TRY IT ON A WORKED EXAMPLE</span>
+              <div class="hero-actions">
+                <button class="primary" id="run-modest">Modest add <span>↗</span></button>
+                <button class="danger" id="run-reckless">Reckless add <span>↗</span></button>
+              </div>
+              <label class="replay-toggle">
+                <input type="checkbox" id="replay-mode" /> use recorded market data instead of live
+              </label>
+            </div>
+            <p class="safety-note">
+              <span>◈</span> No withdrawal scope · no write endpoint exists · every value carries its
+              provenance
+            </p>
+          </div>
+
+          <div class="verdict-hero" id="verdict-hero">
+            <div class="verdict-label">REFEREE VERDICT</div>
+            <div class="verdict-idle" id="verdict-big">—</div>
+            <div class="verdict-rule" id="verdict-rule">Run a cycle to begin</div>
+            <div class="verdict-math" id="verdict-math"></div>
+            <div class="verdict-foot">The trade can be right and still be unsafe.</div>
+          </div>
+        </section>
+
+        <section class="banner" id="banner" hidden></section>
+
+        <section class="own-book">
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <span class="panel-kicker">USE IT ON YOUR OWN NUMBERS</span>
+                <h3>Would this trade break your book?</h3>
+              </div>
+              <span class="live-tag purple-tag">NO ACCOUNT NEEDED</span>
+            </div>
+            <p class="panel-note">
+              Nothing is stored and no account is connected. Your figures are checked against live
+              Binance prices and the same Constitution, then discarded.
+            </p>
+
+            <form class="book-form" id="book-form">
+              <fieldset>
+                <legend>Your book</legend>
+                <label>
+                  <span>Wallet balance (USDC)</span>
+                  <input type="number" id="in-wallet" value="25000" min="0" step="any" required />
+                </label>
+                <label>
+                  <span>Position size (BTC, negative for short)</span>
+                  <input type="number" id="in-qty" value="0.05" step="any" />
+                </label>
+                <label>
+                  <span>Your entry price (USD)</span>
+                  <input type="number" id="in-entry" value="78000" min="0" step="any" />
+                </label>
+              </fieldset>
+
+              <fieldset>
+                <legend>The trade you are considering</legend>
+                <label>
+                  <span>Direction</span>
+                  <select id="in-side">
+                    <option value="LONG">LONG</option>
+                    <option value="SHORT">SHORT</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Size (BTC)</span>
+                  <input type="number" id="in-add" value="0.1" min="0" step="any" required />
+                </label>
+                <label>
+                  <span>Invalidation price (optional)</span>
+                  <input type="number" id="in-invalidation" placeholder="e.g. 76000" min="0" step="any" />
+                </label>
+              </fieldset>
+
+              <div class="form-actions">
+                <button type="submit" class="primary" id="evaluate">Check this trade <span>↗</span></button>
+                <span class="form-hint" id="form-hint">Live BTC price is fetched when you submit.</span>
+              </div>
+              <div class="form-error" id="form-error" hidden></div>
+            </form>
+          </div>
+        </section>
+
+        <section class="metrics">
+          <article>
+            <span>BINANCE REACHABILITY</span><strong id="m-reach">—</strong><b id="m-reach-sub">not checked</b>
+          </article>
+          <article>
+            <span>EVIDENCE FRESHNESS</span><strong id="m-fresh">—</strong><b id="m-fresh-sub">no packet</b>
+          </article>
+          <article>
+            <span>CONSTITUTION</span><strong id="m-const">—</strong><b id="m-const-sub">not loaded</b>
+          </article>
+          <article>
+            <span>JOURNAL INTEGRITY</span><strong id="m-journal">—</strong><b id="m-journal-sub">no events</b>
+          </article>
+        </section>
+
+        <section class="book-debate">
+          <div class="panel">
+            <div class="panel-head">
+              <div><span class="panel-kicker">01 · QUANT</span><h3>Shared evidence</h3></div>
+              <span class="live-tag purple-tag" id="evidence-count">0 keys</span>
+            </div>
+            <p class="panel-note">
+              Both agents receive exactly this. Click any row to see where the number came from.
+            </p>
+            <div class="evidence-list" id="evidence-list">
+              <div class="empty">No packet yet.</div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <div><span class="panel-kicker">02 · PROPOSAL</span><h3>Under review</h3></div>
+              <span class="sim-tag">SIMULATION</span>
+            </div>
+            <div class="proposal" id="proposal">
+              <div class="empty">No proposal yet.</div>
+            </div>
+            <div class="fixture-note">
+              <b>Deterministic safety fixture.</b>
+              This proposal is deliberately reckless and was constructed to test whether the risk
+              authority stops it. It did not come from a live account.
+            </div>
+          </div>
+        </section>
+
+        <section class="router-section">
+          <div class="panel">
+            <div class="panel-head">
+              <div><span class="panel-kicker">03 · PORTFOLIO ROUTER</span><h3>Which strategies were considered</h3></div>
+              <span class="live-tag purple-tag" id="route-selected">—</span>
+            </div>
+            <p class="panel-note">
+              Every route is scored in basis points over its own horizon, or rejected with a reason.
+            </p>
+            <div class="route-table" id="route-table">
+              <div class="empty">No routes evaluated yet.</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="debate-grid">
+          <div class="panel">
+            <div class="panel-head">
+              <div><span class="panel-kicker">04 · ADVERSARIAL DEBATE</span><h3>Same evidence. Opposite reading.</h3></div>
+              <span class="debate-state" id="debate-state">—</span>
+            </div>
+            <div id="agents">
+              <div class="empty">No debate yet.</div>
+            </div>
+            <div class="router-line" id="router-line"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <div><span class="panel-kicker">05 · RISK REFEREE</span><h3>Post-fill simulation</h3></div>
+              <span class="referee-tag">DETERMINISTIC</span>
+            </div>
+            <div class="rule-table" id="rule-table">
+              <div class="empty">No verdict yet.</div>
+            </div>
+            <div class="rule-source" id="rule-source">
+              Limits come from <code>config/constitution.yaml</code>, enforced in code, not prompt text.
+            </div>
+          </div>
+        </section>
+
+        <section class="executor-grid">
+          <div class="panel">
+            <div class="panel-head">
+              <div><span class="panel-kicker">06 · EXECUTION</span><h3>Where the chain stops</h3></div>
+              <span class="paper-tag">PREVIEW ONLY</span>
+            </div>
+            <div class="execution" id="execution">
+              <div class="empty">Nothing to preview.</div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <div><span class="panel-kicker">07 · JOURNAL</span><h3>Hash-linked record</h3></div>
+              <span class="journal-valid" id="journal-badge">—</span>
+            </div>
+            <div class="journal" id="journal">
+              <div class="empty">No events yet.</div>
+            </div>
+            <div class="journal-foot">
+              <button class="tamper" id="tamper">Tamper test: flip the verdict</button>
+              <span id="tamper-result"></span>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        <span>APEX · Adversarial Portfolio Execution Engine</span>
+        <span>Prototype · no live trading capability · not financial advice</span>
+      </footer>
+    </div>
+
+    <div class="provenance-backdrop" id="prov-backdrop" hidden>
+      <div class="provenance-card" role="dialog" aria-modal="true" aria-labelledby="prov-key">
+        <button class="prov-close" id="prov-close" aria-label="Close">×</button>
+        <div class="prov-key" id="prov-key"></div>
+        <div class="prov-value" id="prov-value"></div>
+        <dl class="prov-rows" id="prov-rows"></dl>
+      </div>
+    </div>
+
+    <script src="/apex.js"></script>
+  </body>
+</html>
