@@ -18,6 +18,7 @@ export const EVENT_TYPES = [
   "CONSTITUTION",
   "REFEREE_SIMULATION",
   "REFEREE_DECISION",
+  "GUARDIAN_PREFLIGHT",
   "EXECUTION_PREVIEW",
   "HUMAN_CONFIRMATION",
   "ORDER_SUBMITTED",
@@ -29,9 +30,9 @@ export const EVENT_TYPES = [
 
 export const GENESIS_HASH = "0".repeat(64);
 
-export function hashEvent({ event_type, timestamp, payload, previous_hash }) {
+export function hashEvent({ event_id, environment, event_type, timestamp, payload, previous_hash }) {
   return sha256(
-    canonicalJson({ event_type, timestamp, payload, previous_hash })
+    canonicalJson({ event_id, environment, event_type, timestamp, payload, previous_hash })
   );
 }
 
@@ -47,13 +48,13 @@ export function createJournal({ environment = "development" } = {}) {
       event_id: `evt_${String(events.length + 1).padStart(6, "0")}`,
       timestamp,
       event_type,
-      payload,
+      payload: structuredClone(payload),
       previous_hash,
       environment
     };
     event.event_hash = hashEvent(event);
     events.push(event);
-    return event;
+    return structuredClone(event);
   }
 
   return {
@@ -76,10 +77,11 @@ export function createJournal({ environment = "development" } = {}) {
 
 // Verify the chain. Returns the first break rather than a bare boolean, so a
 // tamper can be pointed at in the UI.
-export function verifyJournal(events) {
+export function verifyJournal(events, checkpoint = null) {
   let previous = GENESIS_HASH;
   for (let i = 0; i < events.length; i += 1) {
     const event = events[i];
+    if (event.event_id !== `evt_${String(i + 1).padStart(6, "0")}`) return { valid: false, failure: "INVALID_SEQUENCE", index: i };
 
     if (event.previous_hash !== previous) {
       return {
@@ -104,6 +106,7 @@ export function verifyJournal(events) {
 
     previous = event.event_hash;
   }
+  if (checkpoint && (checkpoint.length !== events.length || checkpoint.head !== previous)) return { valid: false, failure: "CHECKPOINT_MISMATCH" };
   return { valid: true, length: events.length, head: previous };
 }
 

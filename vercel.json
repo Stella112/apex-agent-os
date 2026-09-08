@@ -1,0 +1,16 @@
+{
+  "cleanUrls": true,
+  "functions": {
+    "api/index.mjs": {
+      "maxDuration": 60
+    }
+  },
+  "rewrites": [
+    { "source": "/mcp", "destination": "/api/index.mjs" },
+    { "source": "/api/:path*", "destination": "/api/index.mjs" },
+    { "source": "/docs", "destination": "/docs-v2.html" },
+    { "source": "/", "destination": "/landing.html" },
+    { "source": "/dashboard", "destination": "/apex.html" },
+    { "source": "/apex/:path*", "destination": "/apex/:path*" }
+  ]
+}

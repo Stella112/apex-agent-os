@@ -82,7 +82,7 @@ function coerce(token, lineNumber) {
 export function canonicalJson(value) {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  const keys = Object.keys(value).sort();
+  const keys = Object.keys(value).filter(key => value[key] !== undefined).sort();
   const pairs = keys.map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`);
   return `{${pairs.join(",")}}`;
 }
@@ -113,11 +113,15 @@ export function validateConstitution(doc) {
   }
   // A Constitution that permits withdrawals contradicts the platform's own
   // guarantee and is refused rather than quietly honoured.
-  if (doc.capital?.withdrawals_allowed === true) {
+  if (doc.capital?.withdrawals_allowed !== false) {
     problems.push("capital.withdrawals_allowed must be false");
   }
-  if (doc.execution?.require_human_confirmation === false) {
+  if (doc.execution?.require_human_confirmation !== true) {
     problems.push("execution.require_human_confirmation must be true");
+  }
+  for (const [section, key] of REQUIRED.filter(([section]) => section === "risk")) {
+    const value = doc[section]?.[key];
+    if (!Number.isFinite(value) || value <= 0) problems.push(`${section}.${key} must be positive and finite`);
   }
   return problems;
 }

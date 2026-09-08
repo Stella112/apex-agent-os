@@ -19,6 +19,11 @@ import { liquidationDistancePct, resolveLiquidation } from "./liquidation.mjs";
 // Formula documentation (spec section 15). Kept beside the code so the
 // dashboard can show a reader the arithmetic behind any number.
 export const FORMULAS = {
+  "market.realized_volatility": "sample standard deviation of hourly log close returns × sqrt(8760); requires >=3 closed candles",
+  "market.order_book_imbalance": "(top-20 bid notional - ask notional) / combined notional",
+  "market.flow_toxicity": "absolute buy-minus-sell aggressor quantity / total sampled quantity; not VPIN",
+  "market.sma_24": "mean of 24 closed hourly candles; unavailable if incomplete",
+  "market.sma_168": "mean of 168 closed hourly candles; unavailable if incomplete",
   "price.mid": "mid = (bid + ask) / 2",
   "price.spread": "spread = ask - bid",
   "price.spread_bps": "spread_bps = ((ask - bid) / mid) * 10000",
@@ -111,10 +116,10 @@ export function buildQuantPacket({
     context.openInterest === null ? unavailable({ source: "binance" }) : at(context.openInterest);
   evidence["market.volume_24h"] = at(context.volume24h);
   evidence["market.price_change_pct_24h"] = at(context.priceChangePercent);
-  evidence["market.range_24h_high"] = at(context.range24h.high);
-  evidence["market.range_24h_low"] = at(context.range24h.low);
-  evidence["market.range_7d_high"] = at(context.range7d.high);
-  evidence["market.range_7d_low"] = at(context.range7d.low);
+  evidence["market.range_24h_high"] = derived(context.range24h.high, "market.range_24h_high");
+  evidence["market.range_24h_low"] = derived(context.range24h.low, "market.range_24h_low");
+  evidence["market.range_7d_high"] = derived(context.range7d.high, "market.range_7d_high");
+  evidence["market.range_7d_low"] = derived(context.range7d.low, "market.range_7d_low");
   evidence["market.basis_bps"] = derived(
     ((context.markPrice - context.indexPrice) / context.indexPrice) * 10_000,
     "market.basis_bps"

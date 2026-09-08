@@ -6,12 +6,12 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test test/referee.test.mjs test/liquidation.test.mjs test/journal.test.mjs test/fixture.test.mjs test/evidence.test.mjs test/router.test.mjs",
+    "test": "node --test test/*.test.mjs",
     "demo": "node bin/demo.mjs",
     "demo:replay": "node bin/demo.mjs --replay",
     "verify": "node bin/verify.mjs"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   }
 }

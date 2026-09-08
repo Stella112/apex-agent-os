@@ -45,7 +45,7 @@ export function validateAgentOutput({ output, packet }) {
   if (!ALLOWED_DECISIONS.has(output.decision)) {
     return fail(REJECTION.MALFORMED_CLAIM, `unknown decision ${JSON.stringify(output.decision)}`);
   }
-  if (typeof output.confidence !== "number" || output.confidence < 0 || output.confidence > 1) {
+  if (!Number.isFinite(output.confidence) || output.confidence < 0 || output.confidence > 1) {
     return fail(REJECTION.MALFORMED_CLAIM, "confidence must be a number between 0 and 1");
   }
   if (!Array.isArray(output.claims) || output.claims.length === 0) {
@@ -65,7 +65,7 @@ export function validateAgentOutput({ output, packet }) {
       continue;
     }
 
-    const missing = claim.evidence_keys.filter((key) => !(key in packet.evidence));
+    const missing = claim.evidence_keys.filter((key) => typeof key !== "string" || !Object.hasOwn(packet.evidence, key));
     if (missing.length > 0) {
       rejected.push({
         claim,
@@ -78,7 +78,7 @@ export function validateAgentOutput({ output, packet }) {
 
     // A key that exists but holds no value cannot support a claim either.
     const emptyKeys = claim.evidence_keys.filter(
-      (key) => packet.evidence[key].value === null
+      (key) => packet.evidence[key]?.value == null || ["STALE", "EXPIRED", "UNAVAILABLE"].includes(packet.evidence[key]?.freshness)
     );
     if (emptyKeys.length > 0) {
       rejected.push({
@@ -203,8 +203,9 @@ export async function callModelWithValidation({
 }
 
 function withTimeout(promise, ms) {
+  let timer;
   return Promise.race([
     Promise.resolve(promise),
-    new Promise((_, reject) => setTimeout(() => reject(new Error("__timeout__")), ms))
-  ]);
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("__timeout__")), ms); })
+  ]).finally(() => clearTimeout(timer));
 }

@@ -60,6 +60,7 @@ export function resolverLookup(hostname, options, callback) {
 // certificate validation is unchanged. Only the address lookup is redirected.
 export function getJsonViaResolver(url, { timeoutMs = 15_000 } = {}) {
   return new Promise((resolve, reject) => {
+    let timer;
     const request = https.get(
       url,
       { lookup: resolverLookup, timeout: timeoutMs },
@@ -68,6 +69,7 @@ export function getJsonViaResolver(url, { timeoutMs = 15_000 } = {}) {
         response.setEncoding("utf8");
         response.on("data", (chunk) => {
           body += chunk;
+          if (body.length > 8_000_000) request.destroy(new Error("Market response exceeds payload limit"));
         });
         response.on("end", () => {
           if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -82,6 +84,8 @@ export function getJsonViaResolver(url, { timeoutMs = 15_000 } = {}) {
         });
       }
     );
+    timer = setTimeout(() => request.destroy(new Error("Market deadline exceeded")), timeoutMs);
+    request.on("close", () => clearTimeout(timer));
     request.on("error", reject);
     request.on("timeout", () => request.destroy(new Error(`${url} timed out after ${timeoutMs}ms`)));
   });

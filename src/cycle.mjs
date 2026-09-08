@@ -12,14 +12,18 @@ import { CLASSIFICATION } from "./provenance.mjs";
 import { configureResolver, probeReachability } from "./resolver.mjs";
 import { fetchMarketContext } from "./market.mjs";
 import { buildQuantPacket } from "./quant.mjs";
-import { callModelWithValidation } from "./evidence.mjs";
+import { callModelWithValidation, validateAgentOutput } from "./evidence.mjs";
 import { bearProvider, bullProvider, routeDebate } from "./agents.mjs";
+import { getAgentProviders } from "./ollama.mjs";
+import { createExternalBear } from "./external-model.mjs";
+import { analyzeNarrative, attachNarrative } from "./narrative.mjs";
 import { judge, largestCompliantSize } from "./referee.mjs";
 import { loadConstitution, stamp } from "./constitution.mjs";
 import { policyFromConstitution } from "./policy.mjs";
 import { createJournal } from "./journal.mjs";
 import { evaluateRoutes } from "./router.mjs";
 import { canonicalJson, sha256 } from "./constitution.mjs";
+import { runGuardianPreflight } from "./guardian.mjs";
 
 // No Binance MCP write tool has a published schema, so execution is unverified.
 // This flag is the single place that fact enters the decision pipeline. Setting
@@ -32,6 +36,7 @@ export const HALT = {
   EVIDENCE_STALE: "EVIDENCE_STALE",
   AGENT_INVALID: "AGENT_INVALID",
   REFEREE_DENIED: "REFEREE_DENIED",
+  GUARDIAN_BLOCKED: "GUARDIAN_BLOCKED",
   AWAITING_HUMAN: "AWAITING_HUMAN"
 };
 
@@ -44,13 +49,31 @@ export async function runCycle({
   mode = "LIVE",
   capturedContext = null,
   dnsServers,
-  now = Date.now()
+  now = Date.now(),
+  agentProviders = null,
+  narrativeItems = [],
+  execution = {}
 } = {}) {
+  if (!["LIVE", "SIMULATION"].includes(mode)) throw new Error("Unsupported decision environment");
+  if (mode === "LIVE" && capturedContext) throw new Error("LIVE cannot accept captured market data");
   const constitution = loadConstitution();
+  const executionContext = {
+    accountBound: false,
+    writesEnabled: false,
+    autopilotEnabled: false,
+    pendingOrder: false,
+    maxOrderNotional: null,
+    allowedSymbols: [],
+    ...execution
+  };
   const policy = policyFromConstitution(constitution);
   const journal = createJournal({ environment: mode });
 
   journal.append("CONSTITUTION", stamp(constitution));
+  if (mode === "LIVE" && !agentProviders && (!getAgentProviders()?.bull || !createExternalBear())) {
+    journal.append("ERROR", { stage: "PROVIDERS", halt: "MODEL_UNAVAILABLE" });
+    return halted(journal, "MODEL_UNAVAILABLE", "Live analysis requires a configured Ollama Bull and external Bear. No canned analyst was substituted.");
+  }
 
   // --- Market ---------------------------------------------------------------
   let context = capturedContext;
@@ -96,11 +119,18 @@ export async function runCycle({
 
   // --- Quant ----------------------------------------------------------------
   const marks = { [symbol]: context.markPrice };
+  // Never value other holdings at their historical entry during a live review.
+  for (const heldSymbol of new Set((book?.positions ?? []).map(p => p.symbol))) {
+    if (heldSymbol === symbol) continue;
+    if (mode !== 'LIVE') return halted(journal, 'MARKET_UNAVAILABLE', 'Captured evidence does not contain every portfolio mark.');
+    try { marks[heldSymbol] = (await fetchMarketContext(heldSymbol)).markPrice; }
+    catch { return halted(journal, 'MARKET_UNAVAILABLE', `Live mark unavailable for ${heldSymbol}.`); }
+  }
   // The clock is read here, after the market fetch, not at cycle start. Using
   // the earlier timestamp would date every field from before the data existed
   // and make fresh readings look unavailable.
   const observedNow = Math.max(now, Date.now());
-  const packet = buildQuantPacket({
+  let packet = buildQuantPacket({
     context,
     book,
     marks,
@@ -114,6 +144,8 @@ export async function runCycle({
     evidence_key_count: Object.keys(packet.evidence).length,
     worst_freshness: packet.worst_freshness
   });
+  const narrative = analyzeNarrative(narrativeItems, { symbol, now: observedNow });
+  packet = attachNarrative(packet, narrative);
 
   // Fail closed on stale evidence before any agent is asked anything.
   if (["STALE", "EXPIRED", "UNAVAILABLE"].includes(packet.worst_freshness)) {
@@ -135,18 +167,52 @@ export async function runCycle({
   // "they saw identical evidence" is checkable rather than asserted.
   const hashInput = (p) => sha256(canonicalJson(p.evidence));
 
-  const bull = await callModelWithValidation({
-    provider: bullProvider,
-    role: "bull",
-    packet,
-    hashInput
-  });
-  const bear = await callModelWithValidation({
-    provider: bearProvider,
-    role: "bear",
-    packet,
-    hashInput
-  });
+  const configuredAgents = agentProviders ?? (mode === "LIVE" ? getAgentProviders() : null);
+  let bull;
+  let bear;
+  if (mode === "LIVE") {
+    [bull, bear] = await Promise.all([
+      callModelWithValidation({ provider: configuredAgents?.bull, role: "bull", packet, hashInput, timeoutMs: 78_000, attempts: 1 }),
+      callModelWithValidation({ provider: agentProviders?.bear ?? createExternalBear(), role: "bear", packet, hashInput, timeoutMs: 30_000, attempts: 1 })
+    ]);
+  } else if (configuredAgents?.debate) {
+    // Ollama on the VPS is intentionally called once: its small local model
+    // queues concurrent generations. The response still contains two
+    // independently validated agent decisions, each with the same input hash.
+    const input_hash = hashInput(packet);
+    try {
+      const raw = await withTimeout(
+        configuredAgents.debate.debate({ packet }),
+        configuredAgents.timeoutMs
+      );
+      bull = validateOllamaDecision({ role: "bull", output: raw?.bull, packet, input_hash, model: configuredAgents.model });
+      bear = validateOllamaDecision({ role: "bear", output: raw?.bear, packet, input_hash, model: configuredAgents.model });
+    } catch (error) {
+      bull = ollamaFailure("bull", input_hash, configuredAgents.model, error);
+      bear = ollamaFailure("bear", input_hash, configuredAgents.model, error);
+    }
+  } else {
+    const [deterministicBull, deterministicBear] = await Promise.all([
+      callModelWithValidation({
+        provider: bullProvider,
+        role: "bull",
+        packet,
+        hashInput
+      }),
+      callModelWithValidation({
+        provider: bearProvider,
+        role: "bear",
+        packet,
+        hashInput
+      })
+    ]);
+    bull = deterministicBull;
+    bear = deterministicBear;
+  }
+  if (!["price.mark", "price.index", "price.bid", "price.ask", "portfolio.equity"].every(key => packet.evidence[key]?.value != null)) {
+    journal.append("ERROR", { stage: "QUANT_PACKET", halt: "CRITICAL_INPUT_MISSING" });
+    return halted(journal, "CRITICAL_INPUT_MISSING", "Critical prices or portfolio equity unavailable.", { packet });
+  }
 
   journal.append("BULL_DECISION", summarize(bull));
   journal.append("BEAR_DECISION", summarize(bear));
@@ -171,7 +237,7 @@ export async function runCycle({
     packet,
     policy,
     constitution,
-    executionVerified: EXECUTION_VERIFIED
+    executionVerified: executionContext.writesEnabled === true
   });
 
   journal.append("ROUTE_EVALUATION", {
@@ -262,6 +328,50 @@ export async function runCycle({
       verdict,
       resize: safeQty,
       appliedCandidate,
+      // Expose the exact inputs used by the first Referee pass so the HTTP
+      // layer can recheck a computed resize without silently switching to a
+      // fixture price or a different thesis.
+      referee_inputs: { marks, thesis },
+      packet,
+      bull,
+      bear,
+      debate,
+      routes,
+      journal,
+      constitution: stamp(constitution)
+    };
+  }
+
+  // --- Guardian preflight --------------------------------------------------
+  // Guardian is a deterministic execution firewall. It does not replace the
+  // Referee and it cannot grant account authority; it can only add a check or
+  // fail closed when the account/write path is not verified.
+  const guardian = runGuardianPreflight({
+    candidate: appliedCandidate,
+    book,
+    packet,
+    verdict,
+    constitution,
+    execution: executionContext,
+    pendingOrder: executionContext.pendingOrder === true
+  });
+  journal.append("GUARDIAN_PREFLIGHT", {
+    status: guardian.status,
+    safe_to_confirm: guardian.safe_to_confirm,
+    summary: guardian.summary,
+    blocked_checks: guardian.checks.filter((item) => item.status === "BLOCK").map((item) => item.id)
+  });
+
+  if (guardian.status !== "PASS") {
+    return {
+      halted: true,
+      stage: "GUARDIAN_PREFLIGHT",
+      halt: HALT.GUARDIAN_BLOCKED,
+      message: guardian.reason,
+      verdict,
+      appliedCandidate,
+      referee_inputs: { marks, thesis },
+      guardian,
       packet,
       bull,
       bear,
@@ -280,7 +390,8 @@ export async function runCycle({
     reference_price: appliedCandidate.entryPrice,
     execution_mode: mode,
     requires_human_confirmation: constitution.execution.require_human_confirmation,
-    note: "APEX does not submit orders. No Binance write tool has a verified schema."
+    guardian: guardian.status,
+    note: "Guardian passed; APEX still requires human confirmation before any order."
   });
 
   return {
@@ -289,6 +400,8 @@ export async function runCycle({
     halt: HALT.AWAITING_HUMAN,
     verdict,
     appliedCandidate,
+    referee_inputs: { marks, thesis },
+    guardian,
     packet,
     bull,
     bear,
@@ -324,6 +437,39 @@ function summarize(agent) {
     rejected_count: (agent.rejected ?? []).length,
     failure: agent.failure ?? null
   };
+}
+
+function validateOllamaDecision({ role, output, packet, input_hash, model }) {
+  return {
+    ...validateAgentOutput({ output, packet }),
+    role,
+    model: `ollama:${role}`,
+    model_version: model,
+    input_hash,
+    timestamp: new Date().toISOString(),
+    attempts_used: 1
+  };
+}
+
+function ollamaFailure(role, input_hash, model, error) {
+  return {
+    valid: false,
+    failure: "MODEL_UNAVAILABLE",
+    reasons: [error?.message ?? "Ollama request failed"],
+    role,
+    model: `ollama:${role}`,
+    model_version: model,
+    input_hash,
+    timestamp: new Date().toISOString(),
+    attempts_used: 1
+  };
+}
+
+function withTimeout(promise, ms = 10_000) {
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Ollama request timed out")), ms))
+  ]);
 }
 
 function halted(journal, halt, message, extra = {}) {

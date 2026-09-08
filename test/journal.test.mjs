@@ -117,6 +117,13 @@ test("an unknown event type is rejected", () => {
   assert.throws(() => journal.append("MADE_UP_EVENT", {}), /unknown event type/);
 });
 
+test("Guardian preflight decisions are recorded and verifiable", () => {
+  const journal = createJournal({ environment: "test" });
+  const event = journal.append("GUARDIAN_PREFLIGHT", { status: "BLOCK" });
+  assert.equal(event.event_type, "GUARDIAN_PREFLIGHT");
+  assert.equal(journal.verify().valid, true);
+});
+
 test("tampering with a payload is detected and located", () => {
   const journal = createJournal();
   journal.append("MARKET_STATE", { price: 80_000 });
@@ -144,7 +151,7 @@ test("deleting an event from the middle breaks the chain", () => {
 
   const result = verifyJournal(events);
   assert.equal(result.valid, false);
-  assert.equal(result.failure, "BROKEN_LINK");
+  assert.equal(result.failure, "INVALID_SEQUENCE");
   assert.equal(result.index, 1);
 });
 
@@ -160,6 +167,8 @@ test("re-hashing a tampered event still breaks the following link", () => {
   events[1].payload.verdict = "ALLOW";
   events[1].event_hash = sha256(
     canonicalJson({
+      event_id: events[1].event_id,
+      environment: events[1].environment,
       event_type: events[1].event_type,
       timestamp: events[1].timestamp,
       payload: events[1].payload,

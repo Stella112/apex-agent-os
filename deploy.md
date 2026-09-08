@@ -1,59 +1,13 @@
-# Deploying APEX
+# Operations — prepared, not deployed
 
-APEX is a single Node process with no dependencies, no database and no secrets. It needs
-outbound HTTPS to Binance's public market endpoints and nothing else.
+Use Node 22+, bind to 127.0.0.1, and keep one process per private data directory. Run `node --env-file=.env server.mjs`; Ctrl+C stops that foreground process. The existing Qevor convention is PM2 apex-agent under /opt/apex-agent with private Ollama on localhost. Do not expose Ollama publicly.
 
-## What it does and does not need
+The supplied environment example names the provider settings. Confirm model availability with the private Ollama tags endpoint; successful inference is a separate check. External Bear needs an exact HTTPS chat-completions endpoint, model and server-side key. The optional Binance REST adapter reads `BINANCE_API_KEY` and `BINANCE_API_SECRET` only on the server; `BINANCE_REST_WRITES` and `BINANCE_AUTOPILOT_ENABLED` must remain false until Guardian limits, account binding and reconciliation are verified. `BINANCE_LIVE_EXECUTION` cannot unlock this checkpoint.
 
-- **No API keys.** Every Binance endpoint it reads is public.
-- **No database.** Journals live in memory for the length of a cycle.
-- **No inbound secrets.** Nothing a visitor types is stored.
+Before a future authorized deployment: capture the current release and sanitized configuration inventory, back up the private data directory, stage the candidate separately, run regression/smoke checks, verify the candidate build ID, then restart only apex-agent. Check /api/identity and /api/health. Keep the previous release for rollback and restore it if readiness regresses. Do not overwrite private credentials or records. The old deploy-qevor.ps1 is a legacy direct-copy script, not a verified release/rollback mechanism; do not use it for this candidate without revision.
 
-## Run it directly
+Back up data while the single writer is stopped. Restore to an empty private directory with the same ownership, run bin/record.mjs and verify each relevant record. Revised journal hashing is not compatible with all historical records; retain old records unchanged with their original verifier. A self-contained chain needs an external trusted checkpoint to detect complete rewriting or truncation.
 
-```bash
-HOST=0.0.0.0 PORT=4173 node server.mjs
-```
+Logs: terminal stderr/stdout locally, PM2 logs for the existing deployed service. Do not log credentials or raw authorization headers. Readiness requires real market data, both model responses and eventually a verified account bridge; process liveness is insufficient.
 
-## Run it in Docker
-
-```bash
-docker build -t apex .
-docker run -p 4173:4173 apex
-```
-
-## Behind a reverse proxy
-
-Serve it over TLS. A minimal nginx location block:
-
-```nginx
-location / {
-    proxy_pass http://127.0.0.1:4173;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-}
-```
-
-## Network requirement
-
-The host must be able to resolve and reach `api.binance.com` and `fapi.binance.com`. APEX
-resolves through a public resolver inside its own process, so a host whose system DNS blocks
-those names still works. A host whose *egress IP* is geo-restricted by Binance will not: the
-health endpoint will report `reachable: false` and every cycle will fail closed rather than
-serve stale numbers.
-
-Check before deploying:
-
-```bash
-curl -s https://api.binance.com/api/v3/ping
-```
-
-An empty JSON object means you are fine. A message about a restricted location means Binance
-blocks that host's region, and APEX will correctly refuse to produce market data there.
-
-## Verify a deployment
-
-```bash
-curl -s https://your-host/api/health
-node bin/verify.mjs --base https://your-host
-```
+No deployment, rollback, backup restoration or container run was performed during this repair pass. The Dockerfile and legacy deployment script need additional validation for the new writable data path.

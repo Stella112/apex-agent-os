@@ -1,644 +1,83 @@
-// APEX dashboard.
-//
-// Every number rendered here comes from /api/cycle. Nothing is hardcoded, and
-// nothing is shown without its provenance. Where a value is absent the UI says
-// so rather than printing a zero.
+const $ = id => document.getElementById(id);
+const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = v => v == null || !Number.isFinite(Number(v)) ? '—' : Number(v).toLocaleString('en-US',{style:'currency',currency:'USD',maximumFractionDigits:Number(v)<1?6:2});
+const API = window.APEX_API_ROOT || '/api';
+let opportunities=[], selected=null, review=null, newsSymbols=['BTCUSDT','ETHUSDT'], newsSequence=0;
+function renderCouncil({state='READY',bull=null,bear=null,referee=null,guardian=null}={}){const cards=[['BULL','AI analyst',bull?.valid?bull.decision:(state==='DEBATING'?'Debating…':'Ready'),bull?.valid?`${Math.round(bull.confidence*100)}% confidence · evidence-bound case`:'Makes the strongest supported case'],['BEAR','AI analyst',bear?.valid?bear.decision:(state==='DEBATING'?'Debating…':'Ready'),bear?.valid?`${Math.round(bear.confidence*100)}% confidence · evidence-bound challenge`:'Challenges the same evidence'],['REFEREE','Constitution',referee?.verdict??(state==='DEBATING'?'Waiting for debate':'Ready'),referee?.verdict==='APPROVE'?'Portfolio rules passed':'Deterministic risk checks'],['GUARDIAN','Safety firewall',guardian?.status??(state==='DEBATING'?'Waiting for verdict':'Ready'),guardian?.status==='BLOCK'?'Authority or safety gate blocked execution':'Freshness, authority and policy']];$('market-council').innerHTML=cards.map(([name,role,status,detail])=>`<article class="council-card ${state==='DEBATING'?'active':''} ${status==='BLOCK'?'blocked':''}"><span>${name} · ${role}</span><h3>${esc(status)}</h3><p>${esc(detail)}</p></article>`).join('');}
+renderCouncil();
+async function api(path,body,timeout=25000){const r=await fetch(API+path,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined,cache:body?'default':'no-store',signal:AbortSignal.timeout(timeout)});const data=await r.json();if(!r.ok)throw new Error(data.detail||data.error||`Request failed (${r.status})`);return data;}
+function navigate(){const name=['markets','review','services','activity'].includes(location.hash.slice(1))?location.hash.slice(1):'markets';document.querySelectorAll('[data-view]').forEach(el=>el.hidden=el.dataset.view!==name);document.querySelectorAll('[data-page]').forEach(el=>{el.classList.toggle('active',el.dataset.page===name);if(el.dataset.page===name)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});$('page-title').textContent={markets:'Markets',review:'Agent review',services:'Services',activity:'Decision record'}[name];document.title=`APEX · ${$('page-title').textContent}`;}
+window.addEventListener('hashchange',navigate);navigate();
+const MEME_SYMBOLS=new Set(['ACTUSDT','BOMEUSDT','BONKUSDT','BRETTUSDT','DOGEUSDT','DOGSUSDT','FLOKIUSDT','MEWUSDT','MEMEUSDT','NEIROUSDT','NOTUSDT','PEPEUSDT','PNUTUSDT','POPCATUSDT','SHIBUSDT','TURBOUSDT','WIFUSDT','1000BONKUSDT','1000FLOKIUSDT','1000PEPEUSDT','1000SHIBUSDT']);
+// Binance's public exchange metadata does not reliably identify conventional stocks.
+// Keep this empty until a verified Binance product classification is available.
+const STOCK_LINKED_SYMBOLS=new Set();
+const OPPORTUNITY_GROUPS=[['SPOT','Spot market','No Spot opportunity in this scan. This table shows scored routes, not every Spot listing.'],['PERPETUAL','Perpetuals / futures','No perpetual opportunity in this scan. This table shows scored routes, not every Futures listing.'],['MEME','Meme market','No meme opportunity in this scan. Meme labels are conservative.'],['STOCK_LINKED','Stock-linked / tokenized','No verified stock-linked opportunity in this 24-symbol scan. This does not prove Binance has none elsewhere.'],['OTHER','Other Binance markets','No other scored route in this scan. Other Binance listings may be outside the deep scan.']];
+function opportunityGroup(o){if(STOCK_LINKED_SYMBOLS.has(o.symbol))return 'STOCK_LINKED';if(MEME_SYMBOLS.has(o.symbol))return 'MEME';if(o.category==='FUNDING_CARRY'||/PERPETUAL/i.test(o.route||''))return 'PERPETUAL';if(o.category==='MOMENTUM_WATCH'||/SPOT/i.test(o.route||''))return 'SPOT';return 'OTHER';}
+function opportunityRow(o){return `<tr class="${selected?.id===o.id?'selected':''}"><td><b>${esc(o.symbol)}</b></td><td><small>${esc(o.title)}</small></td><td class="${o.status==='CANDIDATE'?'ok':''}">${esc((o.status||'').replaceAll('_',' '))}</td><td>${esc(o.score)}</td><td>${money(o.reference_price)}</td><td><button class="button" data-inspect="${esc(o.id)}" aria-label="Inspect ${esc(o.symbol)} ${esc(o.title)}">Inspect ↗</button></td></tr>`;}
+function renderRows(){const query=$('symbol-search').value.trim().toUpperCase(),filter=$('route-filter').value;const list=opportunities.filter(o=>o.symbol.includes(query)&&(filter==='all'||filter==='CANDIDATE'&&o.status==='CANDIDATE'||filter==='TREND'&&o.category!=='FUNDING_CARRY'||filter===o.category));OPPORTUNITY_GROUPS.forEach(([group,,empty])=>{const rows=list.filter(o=>opportunityGroup(o)===group),body=document.querySelector(`[data-group-body="${group}"]`),count=document.querySelector(`[data-group-count="${group}"]`);if(body)body.innerHTML=rows.map(opportunityRow).join('')||`<tr><td colspan="6" class="empty">${empty}</td></tr>`;if(count)count.textContent=rows.length;});}
+function inspect(id){selected=opportunities.find(o=>o.id===id);if(!selected)return;const o=selected;const supported=['BTCUSDT','ETHUSDT'].includes(o.symbol);$('selected-opportunity').innerHTML=`<h3>${esc(o.symbol)}</h3><span class="status">${esc(o.title)}</span><div class="mini-stats"><div><small>Score</small><strong>${esc(o.score)}</strong></div><div><small>Reference</small><strong>${money(o.reference_price)}</strong></div></div><p>${esc(o.route)}</p><p>${esc(o.reason)}</p><p><b>${o.category==='FUNDING_CARRY'?`${esc(o.indicative_30d_net_pct)}% indicative net / 30 days`:`${esc(o.distance_from_24h_sma_pct)}% from 24h SMA`}</b></p><p>${esc(o.caveat)}</p>${supported?'<button id="review-selected" class="button primary">Review a directional proposal ↗</button>':'<p>Full portfolio review currently supports BTC/ETH only. This market is available for scanning and news.</p><a class="button" href="/docs#coverage">View coverage ↗</a>'}${o.category==='FUNDING_CARRY'?'<p class="help">Carry needs two legs. The review form evaluates a directional position, not the combined carry route.</p>':''}`;if(supported)$('review-selected').onclick=()=>{$('in-symbol').value=o.symbol;location.hash='review';};newsSymbols=[o.symbol];loadNews();renderRows();}
+$('opportunity-list').onclick=e=>{const b=e.target.closest('[data-inspect]');if(b)inspect(b.dataset.inspect);};$('symbol-search').oninput=renderRows;$('route-filter').onchange=renderRows;
+async function scan(){const b=$('refresh-opportunities');b.disabled=true;b.textContent='Scanning…';try{const data=await api('/opportunities');opportunities=data.opportunities??[];selected=null;$('selected-opportunity').textContent='Choose Inspect to see a route and its evidence.';renderRows();$('market-count').textContent=data.symbols?.length??new Set(opportunities.map(o=>o.symbol)).size;$('candidate-count').textContent=opportunities.filter(o=>o.status==='CANDIDATE').length;$('unavailable-count').textContent=data.unavailable?.length??0;$('scan-time').textContent=new Date(data.fetched_at).toLocaleTimeString();$('opportunity-foot').textContent=`${opportunities.length} routes · ${data.universe_warning||'Top-liquid USDT sample, not every Binance product.'} Scores are not probabilities. ${data.unavailable?.length?'Unavailable: '+data.unavailable.map(x=>x.symbol).join(', '):''}`;newsSymbols=(data.symbols??['BTCUSDT','ETHUSDT']).slice(0,8);loadNews();}catch(e){opportunities=[];selected=null;renderRows();$('selected-opportunity').textContent='Market data unavailable.';$('opportunity-foot').textContent=e.message;$('market-count').textContent='—';$('candidate-count').textContent='—';$('unavailable-count').textContent='—';$('scan-time').textContent='Unavailable';}finally{b.disabled=false;b.textContent='Refresh';}}
+async function loadNews(){const seq=++newsSequence;$('news-sentiment').textContent='Loading';try{const d=await api('/news?symbols='+encodeURIComponent(newsSymbols.join(',')));if(seq!==newsSequence)return;const items=(d.sources??[]).filter(s=>s?.url).sort((a,b)=>Date.parse(b.publishedAt||0)-Date.parse(a.publishedAt||0));$('news-sentiment').textContent=items.length?(d.sentiment??'MIXED_OR_NEUTRAL').replaceAll('_',' '):'No fresh coverage';const seen=new Set(),selectedItems=[];for(const item of items){if(selectedItems.length>=8)break;if(!seen.has(item.symbol)||selectedItems.filter(x=>x.symbol===item.symbol).length<2){seen.add(item.symbol);selectedItems.push(item);}}$('news-list').innerHTML=selectedItems.map(s=>{let url;try{url=new URL(s.url);if(!['https:','http:'].includes(url.protocol))return '';}catch{return '';}return `<article class="news-item"><div class="news-meta">${esc(s.symbol)} · ${esc(s.sourceName||url.hostname)}</div><a href="${esc(url.href)}" target="_blank" rel="noopener noreferrer">${esc(s.title||s.text)}</a><time>${esc(new Date(s.publishedAt).toLocaleString())}</time></article>`;}).join('')||'<p class="empty">No recent matched headlines for these symbols.</p>';$('news-foot').textContent=`${[...new Set(selectedItems.map(s=>s.symbol))].join(', ')||newsSymbols.join(', ')} · ${items.length} matched headlines · Checked ${d.generatedAt?new Date(d.generatedAt).toLocaleTimeString():'now'} · Social feeds unavailable. ${d.feed_errors?.length?'Some feeds failed.':''}`;}catch(e){if(seq!==newsSequence)return;$('news-sentiment').textContent='Unavailable';$('news-list').textContent=e.message;$('news-foot').textContent='News service unavailable. Try Refresh again.';}}
+function checks(items){return items.map(c=>`<div class="check"><b>${esc(c.rule_id||c.id)}</b><span class="${(c.result||c.status)==='PASS'?'ok':'bad'}">${esc(c.result||c.status)}</span><p>${esc(c.detail)}${c.numbers?' · '+esc(JSON.stringify(c.numbers)):''}</p></div>`).join('');}
+function paint(d){$('decision-title').textContent=`${d.proposal?.side??''} ${d.proposal?.qty??''} ${d.proposal?.symbol??''}`;$('review-state').textContent=d.verdict?.verdict||d.halt||'Incomplete';$('decision-reason').textContent=d.message||d.verdict?.checks?.find(c=>c.result==='FAIL')?.detail||'Review completed. See the rules and Guardian below.';$('equity-before').textContent=money(d.verdict?.simulation?.equityBefore);$('equity-after').textContent=money(d.verdict?.simulation?.equityAfter);$('agents').innerHTML=[['Bull',d.bull],['Bear',d.bear]].map(([name,a])=>`<article><span class="${name.toLowerCase()}">${name.toUpperCase()}</span><h3>${esc(a?.valid?a.decision:a?.failure||'Not reached')}</h3>${a?.valid?`<p>Confidence ${Math.round(a.confidence*100)}% · model assessment, not win probability</p><ul>${(a.claims??[]).map(c=>`<li>${esc(c.claim)}<code>${(c.evidence_keys??[]).map(esc).join(' · ')}</code></li>`).join('')}</ul>`:'<p>No validated response. No argument was substituted.</p>'}</article>`).join('');$('debate-state').textContent=d.debate?.classification||'Incomplete';$('router-line').textContent=d.debate?.detail||d.message||'Debate did not complete.';$('verdict-big').textContent=d.verdict?.verdict||'Not reached';$('rule-table').innerHTML=d.verdict?checks(d.verdict.checks):'<p>No verdict: the review stopped before policy evaluation.</p>';$('rule-source').textContent=d.constitution?`Policy ${d.constitution.constitution_id} · v${d.constitution.constitution_version} · ${d.constitution.constitution_sha256.slice(0,16)} · Liquidation values use static estimated tiers.`:'No policy result.';$('guardian-status').textContent=d.guardian?.status||'Not reached';$('guardian-summary').textContent=d.guardian?.reason||'Guardian did not run because the earlier stage failed.';$('guardian-checks').innerHTML=checks(d.guardian?.checks??[]);$('execution').textContent='No order was submitted. Use APEX and Binance MCP in your agent for a fresh review, user confirmation and execution. A Guardian authority block is expected on this analysis-only dashboard.';const evidence=d.packet?.evidence??{};$('evidence-count').textContent=`${Object.keys(evidence).length} fields`;$('evidence-list').innerHTML=Object.entries(evidence).map(([key,f])=>`<details class="evidence-item"><summary><span>${esc(key)}</span><b>${esc(f?.value==null?'Unavailable':typeof f.value==='number'?Number(f.value.toPrecision(7)):f.value)}</b></summary><p>${esc(f?.classification)} · ${esc(f?.freshness)} · ${esc(f?.source)}</p><p>${esc(f?.formula||f?.reason||'')}${f?.assumptions?' · '+esc(f.assumptions.join('; ')):''}</p></details>`).join('')||'No evidence acquired.';$('journal-badge').textContent=d.journal?.valid?'Chain verified':'No verified chain';$('journal').innerHTML=(d.journal?.events??[]).map(e=>`<div class="event">${esc(e.event_type)}<small>${esc(e.event_hash)}</small></div>`).join('')||'No events.';$('export-review').disabled=false;}
+$('book-form').onsubmit=async e=>{e.preventDefault();const b=$('evaluate'),box=$('form-error');box.hidden=true;const qty=Number($('in-qty').value),symbol=$('in-symbol').value;if(qty!==0&&!Number($('in-entry').value)){box.textContent='Enter the average entry for your existing position.';box.hidden=false;return;}b.disabled=true;b.textContent='Reviewing live evidence…';$('review-state').textContent='Running';const payload={mode:'live',sessionOpeningEquity:Number($('in-session').value),book:{walletBalance:Number($('in-wallet').value),positions:qty===0?[]:[{symbol,qty,entryPrice:Number($('in-entry').value)}]},proposal:{symbol,side:$('in-side').value,qty:Number($('in-add').value)},thesis:{invalidation:Number($('in-invalidation').value)}};try{review=await api('/evaluate',payload,100000);paint(review);}catch(err){box.hidden=false;box.textContent=err.message;$('review-state').textContent='Failed';}finally{b.disabled=false;b.textContent='Run agent review ↗';}};
+$('export-review').onclick=()=>{if(!review)return;const url=URL.createObjectURL(new Blob([JSON.stringify(review,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='apex-review.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+$('refresh-opportunities').onclick=scan;$('refresh-news').onclick=loadNews;
+api('/identity').then(d=>{$('backend-identity').textContent=`APEX · build ${d.buildId}`;$('runtime-status').textContent='Service online';}).catch(()=>{$('backend-identity').textContent='Backend unavailable';$('runtime-status').textContent='Offline';});
+// Product upgrades: make the dashboard explain the real workflow state instead
+// of looking like a static scanner. States only advance through user actions;
+// no fill or execution is invented by the browser.
+const lifecycleStates=new Map(),lifecycleLabels={DETECTED:'Detected',INSPECTED:'Inspected',REVIEW_QUEUED:'Review queued',REVIEWED:'Reviewed'};
+function renderLifecycle(){const box=$('lifecycle-list');if(!box)return;const rows=[...new Map(opportunities.map(o=>[o.symbol,o])).values()].slice(0,8);box.innerHTML=rows.map(o=>{const state=lifecycleStates.get(o.symbol)||'DETECTED';return `<div class="lifecycle-row"><div><b>${esc(o.symbol)}</b><small>${esc(o.title)} · ${esc(o.status.replaceAll('_',' '))}</small></div><span class="lifecycle-state ${state==='REVIEWED'?'done':''}">${lifecycleLabels[state]}</span></div>`}).join('')||'<p class="empty">Scan markets to start an opportunity lifecycle.</p>';}
+function seedLifecycle(){opportunities.forEach(o=>{if(!lifecycleStates.has(o.symbol))lifecycleStates.set(o.symbol,'DETECTED');});renderLifecycle();}
+function renderLiveTrace(state='IDLE',detail='Waiting for a proposal'){const box=$('live-trace');if(!box)return;box.innerHTML=[['BULL','Model analyst'],['BEAR','Model analyst'],['REFEREE','Constitution'],['GUARDIAN','Safety firewall']].map(([name,role])=>`<div class="trace-step"><span class="trace-dot ${state==='COMPLETE'?'complete':state==='RUNNING'?'running':''}"></span><div><b>${name}</b><small>${role}</small></div><strong>${state==='COMPLETE'?'RESULT':state==='RUNNING'?'IN FLIGHT':'READY'}</strong></div>`).join('');if($('trace-caption'))$('trace-caption').textContent=detail;}
+function injectProductPanels(){const markets=document.querySelector('section[data-view="markets"]'),layout=markets?.querySelector('.market-layout');if(layout&&!$('workflow-panel')){layout.insertAdjacentHTML('beforebegin','<section class="panel workflow-panel" id="workflow-panel"><div class="panel-head"><div><span class="eyebrow">OPPORTUNITY LIFECYCLE</span><h2>From signal to decision</h2><p>Every opportunity has a visible state. APEX never pretends a scan was an order.</p></div><span class="status">NO PRIVATE DATA</span></div><div class="workflow-grid"><div id="lifecycle-list"></div><div class="context-card"><span class="eyebrow">PORTFOLIO CONTEXT</span><h3>Personalized ranking waits for Binance</h3><p>The public scanner finds market conditions. Your agent can read balances and positions through Binance MCP, then bring that book to APEX for a portfolio-aware review.</p><a class="button" href="/docs#connect">Connect the stack ↗</a></div></div></section>');}const reviewSection=$('review');if(reviewSection&&!$('trace-panel')){reviewSection.insertAdjacentHTML('beforeend','<section class="panel trace-panel" id="trace-panel"><div class="panel-head"><div><span class="eyebrow">LIVE AGENT TRACE</span><h2>What the council is doing</h2><p id="trace-caption">Waiting for a proposal</p></div><span class="status" id="trace-status">READY</span></div><div id="live-trace" class="trace-grid"></div><div class="policy-strip"><b>STRICT POLICY</b><span>Human confirmation required · withdrawals disabled · Guardian fails closed</span></div></section>');}renderLiveTrace();}
+const originalScan=scan;scan=async()=>{await originalScan();seedLifecycle();};$('refresh-opportunities').onclick=scan;
+const originalInspect=inspect;inspect=id=>{originalInspect(id);const o=opportunities.find(x=>x.id===id);if(o){lifecycleStates.set(o.symbol,'INSPECTED');renderLifecycle();const button=$('review-selected');if(button){const old=button.onclick;button.onclick=()=>{lifecycleStates.set(o.symbol,'REVIEW_QUEUED');renderLifecycle();old?.();};}}};$('opportunity-list').onclick=e=>{const b=e.target.closest('[data-inspect]');if(b)inspect(b.dataset.inspect);};
+const originalPaint=paint;paint=d=>{originalPaint(d);renderLiveTrace('COMPLETE','Review complete — inspect each result below.');if($('trace-status'))$('trace-status').textContent='COMPLETE';if(selected)lifecycleStates.set(selected.symbol,'REVIEWED');renderLifecycle();};
+$('book-form').addEventListener('submit',()=>{renderLiveTrace('RUNNING','Review request in flight — awaiting validated Bull, Bear, Referee, and Guardian results.');if($('trace-status'))$('trace-status').textContent='RUNNING';});
+const upgradeStyle=document.createElement('style');upgradeStyle.textContent='.workflow-panel{margin-bottom:22px}.workflow-grid{display:grid;grid-template-columns:1.1fr 1fr;gap:22px;padding:20px}.lifecycle-row{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:14px 0;border-bottom:1px solid var(--line)}.lifecycle-row b,.lifecycle-row small{display:block}.lifecycle-row small{color:var(--muted);font-size:11px;margin-top:4px}.lifecycle-state{font:10px monospace;color:var(--accent);border:1px solid var(--line);padding:6px 8px;white-space:nowrap}.lifecycle-state.done{background:#b4ed8011}.context-card{border-left:1px solid var(--line);padding:8px 4px 8px 22px}.context-card h3{margin:10px 0}.context-card p{color:var(--muted);font-size:12px;margin:0 0 18px;line-height:1.7}.trace-panel{margin-top:22px}.trace-grid{display:grid;grid-template-columns:repeat(4,1fr);padding:20px;gap:10px}.trace-step{border:1px solid var(--line);padding:15px;display:grid;grid-template-columns:12px 1fr;gap:8px;align-items:start}.trace-step>strong{grid-column:2;color:var(--muted);font:10px monospace;margin-top:8px}.trace-step b,.trace-step small{display:block}.trace-step small{color:var(--muted);font-size:10px;margin-top:3px}.trace-dot{width:10px;height:10px;border-radius:50%;background:var(--line);margin-top:3px}.trace-dot.running{background:var(--orange);box-shadow:0 0 0 4px #f49b4b22}.trace-dot.complete{background:var(--accent)}.policy-strip{display:flex;gap:12px;align-items:center;border-top:1px solid var(--line);padding:14px 20px;color:var(--muted);font-size:11px}.policy-strip b{color:var(--accent);font:10px monospace}@media(max-width:900px){.workflow-grid,.trace-grid{grid-template-columns:1fr 1fr}}@media(max-width:760px){.workflow-grid,.trace-grid{grid-template-columns:1fr}.context-card{border-left:0;border-top:1px solid var(--line);padding:18px 0 0}.policy-strip{align-items:flex-start;flex-direction:column}';document.head.append(upgradeStyle);
+injectProductPanels();
+scan();
 
-const $ = (id) => document.getElementById(id);
+const apexOriginalPaint=paint;paint=d=>{apexOriginalPaint(d);renderCouncil({state:'COMPLETE',bull:d.bull,bear:d.bear,referee:d.verdict,guardian:d.guardian});};
+$('book-form').addEventListener('submit',()=>renderCouncil({state:'DEBATING'}),{capture:true});
+async function loadUniverse(){try{const d=await api('/universe');$('universe-count').textContent=(d.count??0).toLocaleString();}catch{$('universe-count').textContent='—';}}
+loadUniverse();
 
-let current = null;
+// Surface a provider's sanitized failure reason so configuration issues are
+// actionable. The API never returns the credential itself.
+function showAgentReasons(d){
+  const agents=[d.bull,d.bear];
+  document.querySelectorAll('#agents article').forEach((card,index)=>{
+    const reason=agents[index]?.reason;
+    if(reason){const note=card.querySelector('p:last-child');if(note)note.textContent=reason;}
+  });
+}
+const paintWithReasons=paint;
+paint=d=>{paintWithReasons(d);showAgentReasons(d);};
 
-// ---------------------------------------------------------------------------
-// Formatting
-// ---------------------------------------------------------------------------
-const money = (v) =>
-  `$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-const FORMATTERS = {
-  "price.mark": money,
-  "price.last": money,
-  "price.index": money,
-  "price.bid": money,
-  "price.ask": money,
-  "price.mid": money,
-  "price.spread": (v) => `$${v.toFixed(2)}`,
-  "price.spread_bps": (v) => `${v.toFixed(3)} bps`,
-  "funding.current": (v) => `${(v * 100).toFixed(4)}%`,
-  "market.basis_bps": (v) => `${v.toFixed(2)} bps`,
-  "market.realized_volatility": (v) => `${(v * 100).toFixed(2)}%`,
-  "market.order_book_imbalance": (v) => v.toFixed(4),
-  "market.flow_toxicity": (v) => v.toFixed(4),
-  "market.open_interest": (v) => v.toLocaleString("en-US"),
-  "market.volume_24h": money,
-  "market.price_change_pct_24h": (v) => `${v.toFixed(2)}%`,
-  "portfolio.equity": money,
-  "portfolio.wallet_balance": money,
-  "portfolio.gross_notional": money,
-  "portfolio.name_notional": money,
-  "portfolio.leverage": (v) => `${v.toFixed(2)}x`,
-  "portfolio.net_delta_btc": (v) => `${v.toFixed(6)} BTC`,
-  "portfolio.name_exposure_pct": (v) => `${v.toFixed(2)}%`,
-  "portfolio.liquidation_price": money,
-  "portfolio.liquidation_distance_pct": (v) => `${v.toFixed(2)}%`,
-  "portfolio.position_qty": (v) => `${v.toFixed(6)} BTC`,
-  "portfolio.entry_price": money
-};
-
-// The rows worth surfacing first. The rest stay available in the provenance
-// modal rather than crowding the panel.
-const HEADLINE_KEYS = [
-  "price.mark",
-  "price.spread_bps",
-  "funding.current",
-  "market.order_book_imbalance",
-  "market.realized_volatility",
-  "market.flow_toxicity",
-  "market.open_interest",
-  "portfolio.equity",
-  "portfolio.leverage",
-  "portfolio.net_delta_btc",
-  "portfolio.liquidation_price",
-  "portfolio.liquidation_distance_pct"
+// APEX services board: make the real architecture visible without implying
+// that deterministic controls are LLM agents.
+const serviceDefinitions=[
+  ['quant','Quant Engine','CONTROL','Builds the shared Binance evidence packet: volatility, funding, basis, exposure and liquidity.'],
+  ['bull','Bull','AI AGENT','Constructs the strongest evidence-bound case for exposure.'],
+  ['bear','Bear','AI AGENT','Challenges the same evidence and searches for failure modes.'],
+  ['debate','Debate Router','CONTROL','Names the actual disagreement before a route is chosen.'],
+  ['portfolio','Portfolio Router','CONTROL','Compares directional, carry, hedge and stand-down routes.'],
+  ['constitution','Constitution','CONTROL','Holds the non-negotiable leverage, exposure and loss boundaries.'],
+  ['referee','Referee','CONTROL','Simulates the portfolio and returns ALLOW, RESIZE or DENY.'],
+  ['guardian','Guardian','CONTROL','Fails closed on stale data, missing authority or unsafe state.'],
+  ['executor','Executor','CONTROL','Prepares approved order intent; human confirmation remains required.'],
+  ['journal','Audit Journal','CONTROL','Records evidence, arguments, rules, approval and execution outcomes.']
 ];
-
-function formatField(key, field) {
-  if (!field || field.value === null) return "UNAVAILABLE";
-  const formatter = FORMATTERS[key];
-  return formatter ? formatter(field.value) : String(field.value);
-}
-
-function classTone(classification) {
-  if (classification === "BINANCE_REPORTED") return "tone-binance";
-  if (classification === "APEX_ESTIMATE") return "tone-estimate";
-  if (classification === "SIMULATION") return "tone-sim";
-  return "tone-none";
-}
-
-function freshTone(freshness) {
-  if (freshness === "FRESH") return "fresh-ok";
-  if (freshness === "AGING") return "fresh-aging";
-  return "fresh-bad";
-}
-
-// ---------------------------------------------------------------------------
-// Rendering
-// ---------------------------------------------------------------------------
-function renderEvidence(packet) {
-  const list = $("evidence-list");
-  const keys = Object.keys(packet.evidence);
-  $("evidence-count").textContent = `${keys.length} keys`;
-
-  if (keys.length === 0) {
-    list.innerHTML = '<div class="empty">Packet is empty. No new risk may be opened.</div>';
-    return;
-  }
-
-  const rows = HEADLINE_KEYS.filter((k) => k in packet.evidence).map((key) => {
-    const field = packet.evidence[key];
-    const absent = !field || field.value === null;
-    return `
-      <button class="evidence-row${absent ? " absent" : ""}" data-key="${key}">
-        <span class="ev-key">${key}</span>
-        <span class="ev-value">${formatField(key, field)}</span>
-        <span class="ev-tags">
-          <em class="${classTone(field?.classification)}">${field?.classification ?? "UNAVAILABLE"}</em>
-          <i class="${freshTone(field?.freshness)}">${field?.freshness ?? "—"}</i>
-        </span>
-      </button>`;
-  });
-
-  list.innerHTML = rows.join("");
-  for (const button of list.querySelectorAll(".evidence-row")) {
-    button.addEventListener("click", () => openProvenance(button.dataset.key));
-  }
-}
-
-function renderProposal(proposal, verdict) {
-  const sim = verdict?.simulation;
-  $("proposal").innerHTML = `
-    <div class="prop-head">
-      <b>${proposal.side} ${proposal.qty} ${proposal.symbol}</b>
-      <span class="sim-chip">${proposal.classification}</span>
-    </div>
-    <p class="prop-desc">${escapeHtml(proposal.description ?? "")}</p>
-    <div class="prop-grid">
-      <div><span>Reference price</span><b>${money(proposal.reference_price)}</b></div>
-      <div><span>Equity after</span><b>${sim ? money(sim.equityAfter) : "—"}</b></div>
-      <div><span>Leverage after</span><b>${sim && isFinite(sim.leverageAfter) ? sim.leverageAfter.toFixed(2) + "x" : "—"}</b></div>
-      <div><span>Liquidation after</span><b>${sim?.liquidationPriceAfter != null ? money(sim.liquidationPriceAfter) : "none"}</b></div>
-    </div>`;
-}
-
-function renderRoutes(data) {
-  const table = $("route-table");
-  if (!data.routes) {
-    table.innerHTML = '<div class="empty">No routes evaluated. The cycle halted first.</div>';
-    $("route-selected").textContent = "—";
-    return;
-  }
-
-  const rows = data.routes.evaluations
-    .map((e) => {
-      const score = e.score === null ? "—" : `${e.score.toFixed(2)} bps`;
-      const cls =
-        e.status === "REJECTED" ? "rejected" : e.route === data.routes.selected ? "chosen" : "";
-      return `<div class="route-row ${cls}">
-        <span class="rt-name">${e.route}</span>
-        <span class="rt-side">${e.side ?? "—"}</span>
-        <span class="rt-score">${score}</span>
-        <span class="rt-status">${e.status}</span>
-      </div>
-      ${e.reason ? `<div class="route-reason">${escapeHtml(e.reason)}</div>` : ""}`;
-    })
-    .join("");
-
-  const breaches = data.routes.book_breaches?.length
-    ? `<div class="route-breach"><b>Book is outside policy:</b> ${data.routes.book_breaches
-        .map(escapeHtml)
-        .join("; ")}</div>`
-    : "";
-
-  table.innerHTML = `
-    <div class="route-row header"><span>ROUTE</span><span>SIDE</span><span>SCORE</span><span>STATUS</span></div>
-    ${rows}${breaches}
-    <div class="route-foot">Selected: <b>${data.routes.selected ?? "none"}</b>. Position routes
-    stay unexecutable while no Binance write schema is verified.</div>`;
-
-  $("route-selected").textContent = data.routes.selected ?? "none";
-}
-
-function renderAgents(data) {
-  const container = $("agents");
-  const blocks = [
-    ["BULL", data.bull, "bull"],
-    ["BEAR", data.bear, "bear"]
-  ].map(([name, agent, cls]) => {
-    if (!agent) return "";
-    if (!agent.valid) {
-      return `<div class="agent-memo ${cls}"><div class="avatar">${name[0]}</div>
-        <div><div class="memo-title"><b>${name}</b><span class="invalid">NO SUPPORTABLE CLAIM</span></div>
-        <p>${agent.failure ?? "Output rejected by the evidence validator."}</p></div></div>`;
-    }
-    const claims = agent.claims
-      .map(
-        (c) => `<li>${escapeHtml(c.claim)}
-          <small>cites ${c.evidence_keys.map((k) => `<code>${k}</code>`).join(" · ")}</small></li>`
-      )
-      .join("");
-    const rejected = agent.rejected.length
-      ? `<div class="rejected">${agent.rejected.length} claim(s) rejected as unsupported</div>`
-      : "";
-    return `<div class="agent-memo ${cls}">
-      <div class="avatar">${name[0]}</div>
-      <div>
-        <div class="memo-title"><b>${name}</b><span>${agent.decision} · ${(agent.confidence * 100).toFixed(0)}%</span></div>
-        <ul class="claims">${claims}</ul>
-        ${rejected}
-      </div></div>`;
-  });
-
-  container.innerHTML = blocks.join("");
-
-  if (data.debate) {
-    $("debate-state").textContent = data.debate.classification;
-    $("debate-state").className = `debate-state ${data.debate.material ? "material" : ""}`;
-    $("router-line").textContent = data.debate.detail;
-  }
-}
-
-function renderVerdict(data) {
-  const table = $("rule-table");
-  if (!data.verdict) {
-    table.innerHTML = '<div class="empty">No verdict. The cycle halted before the Referee.</div>';
-    return;
-  }
-
-  const rows = data.verdict.checks
-    .map((check) => {
-      const { observed, limit } = pickNumbers(check.numbers);
-      return `<div class="rule-row ${check.result === "FAIL" ? "fail" : "pass"}">
-        <span class="r-id">${check.rule_id}</span>
-        <span class="r-obs">${observed}</span>
-        <span class="r-lim">${limit}</span>
-        <span class="r-res">${check.result}</span>
-      </div>`;
-    })
-    .join("");
-
-  const failed = data.verdict.checks.filter((c) => c.result === "FAIL");
-  const why = failed.length
-    ? `<div class="why"><b>Why:</b><ul>${failed
-        .map((c) => `<li>${escapeHtml(c.detail)}</li>`)
-        .join("")}</ul></div>`
-    : "";
-
-  const resize =
-    data.resize === null
-      ? ""
-      : data.resize > 0
-        ? `<div class="resize">Largest compliant size: <b>${data.resize.toFixed(6)}</b>, computed from the rules.</div>`
-        : `<div class="resize">No compliant size exists. The correct action is to stand down.</div>`;
-
-  table.innerHTML = `
-    <div class="rule-row header"><span>RULE</span><span>OBSERVED</span><span>LIMIT</span><span>RESULT</span></div>
-    ${rows}${why}${resize}`;
-
-  if (data.constitution) {
-    $("rule-source").innerHTML = `Policy <code>${data.constitution.constitution_id}</code>
-      v${data.constitution.constitution_version} ·
-      <code>${data.constitution.constitution_sha256.slice(0, 16)}…</code> · enforced in code, not prompt text`;
-  }
-}
-
-function pickNumbers(numbers) {
-  const first = (keys) => {
-    for (const k of keys) {
-      const v = numbers?.[k];
-      if (typeof v === "number" && isFinite(v)) return v;
-    }
-    return null;
-  };
-  const obs = first([
-    "distanceAfter",
-    "leverage",
-    "netDeltaBtc",
-    "concentration",
-    "riskFraction",
-    "drawdown",
-    "confidence",
-    "toxicity"
-  ]);
-  const lim = first(["required", "cap", "limit", "budget", "ceiling", "floor", "threshold"]);
-  const f = (v) => (v === null ? "—" : Math.abs(v) < 1 ? v.toFixed(4) : v.toFixed(2));
-  return { observed: f(obs), limit: f(lim) };
-}
-
-function renderExecution(data) {
-  const el = $("execution");
-
-  // Anything the Referee can make compliant reaches the operator, whether it
-  // was approved as proposed or cut down to a size that passes.
-  if (data.authorisable) {
-    const a = data.authorisable;
-    const resized = a.resized
-      ? `<div class="resize-note">
-           The Referee refused <b>${a.original_qty} BTC</b> and computed the largest size that
-           clears every rule: <b>${a.qty.toFixed(6)} BTC</b>. That is what you are authorising.
-         </div>`
-      : "";
-    el.innerHTML = `<div class="exec-await">
-      <b>${a.resized ? "RESIZED · AWAITING YOUR AUTHORISATION" : "AWAITING YOUR AUTHORISATION"}</b>
-      ${resized}
-      <div class="preview-grid">
-        <div><span>Symbol</span><b>${a.symbol}</b></div>
-        <div><span>Side</span><b>${a.side}</b></div>
-        <div><span>Quantity</span><b>${a.qty.toFixed(6)} BTC</b></div>
-        <div><span>Reference price</span><b>${money(a.entryPrice ?? data.proposal.reference_price)}</b></div>
-        <div><span>Referee</span><b class="ok">APPROVE</b></div>
-        <div><span>Constitution</span><b>${data.constitution?.constitution_id} v${data.constitution?.constitution_version}</b></div>
-      </div>
-      <p>Nothing moves until you authorise it. Authorising records your decision in the journal;
-      it does not send an order, because no Binance write tool has a verified schema.</p>
-      <button class="authorise" id="authorise">Authorise ${a.qty.toFixed(6)} BTC</button>
-      <div id="authorise-result"></div>
-    </div>`;
-    $("authorise").addEventListener("click", () => authorise(data.cycle_id));
-    return;
-  }
-
-  if (data.halt === "REFEREE_DENIED") {
-    el.innerHTML = `<div class="exec-blocked">
-      <b>BLOCKED BY THE REFEREE</b>
-      <p>No compliant size exists for this proposal, so it never reached a human and nothing was
-      submitted anywhere. Standing down is the correct outcome.</p>
-    </div>`;
-    return;
-  }
-
-  el.innerHTML = `<div class="exec-halt"><b>${data.halt ?? "HALTED"}</b><p>${escapeHtml(
-    data.message ?? "The cycle stopped before execution."
-  )}</p></div>`;
-}
-
-function renderJournal(data) {
-  const el = $("journal");
-  el.innerHTML = data.journal.events
-    .map(
-      (e) => `<div class="event">
-        <time>${e.event_id}</time>
-        <p><b>${e.event_type}</b><br /><span>${e.event_hash.slice(0, 16)}…</span></p>
-      </div>`
-    )
-    .join("");
-
-  const badge = $("journal-badge");
-  badge.textContent = data.journal.valid ? "VALID" : data.journal.failure;
-  badge.className = `journal-valid ${data.journal.valid ? "" : "broken"}`;
-  $("m-journal").textContent = data.journal.valid ? "VALID" : "BROKEN";
-  $("m-journal-sub").textContent = `${data.journal.length} hash-linked events`;
-}
-
-function renderVerdictHero(data) {
-  const big = $("verdict-big");
-  const rule = $("verdict-rule");
-  const math = $("verdict-math");
-
-  if (!data.verdict) {
-    big.textContent = data.halt ?? "HALTED";
-    big.className = "verdict-idle";
-    rule.textContent = data.message ?? "The cycle stopped early.";
-    math.innerHTML = "";
-    return;
-  }
-
-  const verdict = data.verdict.verdict;
-  big.textContent = verdict;
-  big.className = verdict === "DENY" ? "verdict-denied" : verdict === "APPROVE" ? "verdict-approved" : "verdict-resize";
-
-  const worst = data.verdict.checks.find((c) => c.result === "FAIL");
-  rule.textContent = worst ? worst.rule_id.replace(/_/g, " ") : "ALL RULES PASSED";
-
-  const liq = data.verdict.checks.find((c) => c.rule_id === "LIQUIDATION_DISTANCE");
-  if (liq && liq.numbers?.distanceAfter != null) {
-    math.innerHTML = `<b>${(liq.numbers.distanceAfter * 100).toFixed(2)}%</b>
-      <span>liquidation distance after fill</span>
-      <em>policy ≥ ${(liq.numbers.required * 100).toFixed(0)}%</em>`;
-  } else {
-    math.innerHTML = "";
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Provenance modal (spec section 38)
-// ---------------------------------------------------------------------------
-function openProvenance(key) {
-  const field = current?.packet?.evidence?.[key];
-  if (!field) return;
-
-  $("prov-key").textContent = key;
-  $("prov-value").textContent = formatField(key, field);
-
-  const rows = [
-    ["Classification", field.classification],
-    ["Source", field.source ?? "—"],
-    ["Status", field.status],
-    ["Freshness", field.freshness],
-    ["Timestamp", field.timestamp ?? "—"],
-    ["Age", field.age_ms === null ? "—" : `${field.age_ms} ms`],
-    ["Formula", field.formula ?? "—"],
-    ["Formula version", field.formula_version ?? "—"],
-    ["Reason", field.reason ?? "—"]
-  ];
-
-  let html = rows
-    .filter(([, v]) => v !== "—" || true)
-    .map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(String(v))}</dd>`)
-    .join("");
-
-  if (field.assumptions) {
-    html += `<dt>Assumptions</dt><dd><ul>${field.assumptions
-      .map((a) => `<li>${escapeHtml(a)}</li>`)
-      .join("")}</ul></dd>`;
-  }
-
-  $("prov-rows").innerHTML = html;
-  $("prov-backdrop").hidden = false;
-}
-
-function closeProvenance() {
-  $("prov-backdrop").hidden = true;
-}
-
-// ---------------------------------------------------------------------------
-// Cycle
-// ---------------------------------------------------------------------------
-async function runCycle(proposalId) {
-  const mode = $("replay-mode").checked ? "replay" : "live";
-  const buttons = [$("run-modest"), $("run-reckless")];
-  buttons.forEach((b) => (b.disabled = true));
-
-  setBanner(null);
-  $("mode-label").textContent = mode === "live" ? "LIVE" : "SIMULATION";
-  $("mode-pill").className = `mode-pill ${mode === "live" ? "live" : "sim"}`;
-
-  try {
-    const response = await fetch(
-      `/api/cycle?mode=${encodeURIComponent(mode)}&proposal=${encodeURIComponent(proposalId)}`
-    );
-    const data = await response.json();
-    if (!response.ok) {
-      setBanner(`Cycle failed: ${data.error ?? response.status}. ${data.detail ?? ""}`, "bad");
-      return;
-    }
-    current = data;
-    paintCycle(data);
-    $("tamper-result").textContent = "";
-  } catch (error) {
-    setBanner(`Could not reach the APEX API: ${error.message}`, "bad");
-  } finally {
-    buttons.forEach((b) => (b.disabled = false));
-  }
-}
-
-function paintCycle(data) {
-    $("m-fresh").textContent = data.packet.worst_freshness;
-    $("m-fresh-sub").textContent = data.packet.missing_keys.length
-      ? `${data.packet.missing_keys.length} field(s) unavailable`
-      : "all fields present";
-
-    if (data.halted && !data.verdict) {
-      setBanner(`${data.halt}: ${data.message}. This is the fail-closed path, no new risk was opened.`, "warn");
-    }
-    if (data.execution_mode === "SIMULATION") {
-      setBanner("SIMULATION. Market data is a replayed capture with its clock rebased. Nothing here is a live exchange reading.", "sim");
-    }
-
-    renderEvidence(data.packet);
-    renderProposal(data.proposal, data.verdict);
-    renderRoutes(data);
-    renderAgents(data);
-    renderVerdict(data);
-    renderVerdictHero(data);
-    renderExecution(data);
-    renderJournal(data);
-}
-
-async function authorise(cycleId) {
-  const button = $("authorise");
-  const out = $("authorise-result");
-  button.disabled = true;
-  button.textContent = "Authorising…";
-
-  try {
-    const response = await fetch("/api/confirm", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cycle_id: cycleId })
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      out.innerHTML = `<div class="auth-fail">${escapeHtml(data.error ?? "authorisation failed")}</div>`;
-      button.disabled = false;
-      button.textContent = "Authorise this trade";
-      return;
-    }
-
-    button.textContent = "Authorised";
-    out.innerHTML = `<div class="auth-ok">
-      <b>AUTHORISATION RECORDED</b>
-      <p>${escapeHtml(data.detail)}</p>
-      <small>Journal now holds ${data.journal.length} events and the chain is
-      ${data.journal.valid ? "valid" : "BROKEN"}.</small>
-    </div>`;
-
-    // The confirmation is part of the same chain, so redraw the journal.
-    current.journal = data.journal;
-    renderJournal(current);
-  } catch (error) {
-    out.innerHTML = `<div class="auth-fail">${escapeHtml(error.message)}</div>`;
-    button.disabled = false;
-    button.textContent = "Authorise this trade";
-  }
-}
-
-function setBanner(text, tone = "warn") {
-  const el = $("banner");
-  if (!text) {
-    el.hidden = true;
-    el.textContent = "";
-    return;
-  }
-  el.hidden = false;
-  el.className = `banner ${tone}`;
-  el.textContent = text;
-}
-
-async function loadHealth() {
-  try {
-    const data = await (await fetch("/api/health")).json();
-    $("m-reach").textContent = data.binance.reachable ? "REACHABLE" : "UNREACHABLE";
-    $("m-reach-sub").textContent = data.binance.reachable
-      ? `${data.binance.latency_ms} ms via ${data.binance.via}`
-      : data.binance.reason ?? "no route";
-    $("m-const").textContent = data.constitution.constitution_id;
-    $("m-const-sub").textContent = `v${data.constitution.constitution_version} · ${data.constitution.constitution_sha256.slice(0, 10)}…`;
-    $("writes-pill").textContent = `WRITES: ${data.writes_enabled ? "ENABLED" : "DISABLED"}`;
-  } catch {
-    $("m-reach").textContent = "UNKNOWN";
-    $("m-reach-sub").textContent = "health check failed";
-  }
-}
-
-// Tamper demonstration. Recomputes the chain in the browser over an edited
-// payload, so a viewer can watch the break appear.
-async function tamperTest() {
-  if (!current) return;
-  const events = current.journal.events;
-  const target = events.find((e) => e.event_type === "REFEREE_DECISION");
-  if (!target) {
-    $("tamper-result").textContent = "no verdict event to tamper with";
-    return;
-  }
-  // Flipping any byte of a committed event breaks the link to the next one.
-  let previous = null;
-  let brokenAt = null;
-  for (const event of events) {
-    if (previous && event.previous_hash !== previous) {
-      brokenAt = event.event_id;
-      break;
-    }
-    previous = event.event_id === target.event_id ? `${target.event_hash}TAMPERED` : event.event_hash;
-  }
-  $("tamper-result").textContent = brokenAt
-    ? `chain breaks at ${brokenAt}`
-    : `chain breaks immediately after ${target.event_id}`;
-  $("journal-badge").textContent = "BROKEN";
-  $("journal-badge").className = "journal-valid broken";
-}
-
-function escapeHtml(value) {
-  return String(value).replace(
-    /[&<>"']/g,
-    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]
-  );
-}
-
-// --- Evaluate a book the user typed in --------------------------------------
-async function evaluateOwnBook(event) {
-  event.preventDefault();
-  const button = $("evaluate");
-  const errorBox = $("form-error");
-  errorBox.hidden = true;
-  button.disabled = true;
-  button.textContent = "Checking…";
-
-  const qty = Number($("in-qty").value);
-  const invalidation = $("in-invalidation").value.trim();
-
-  const payload = {
-    mode: $("replay-mode").checked ? "replay" : "live",
-    book: {
-      walletBalance: Number($("in-wallet").value),
-      // A zero position is simply no position, not a position of size zero.
-      positions:
-        qty === 0 || Number.isNaN(qty)
-          ? []
-          : [
-              {
-                symbol: "BTCUSDT",
-                qty,
-                entryPrice: Number($("in-entry").value)
-              }
-            ]
-    },
-    proposal: {
-      symbol: "BTCUSDT",
-      side: $("in-side").value,
-      qty: Number($("in-add").value)
-    },
-    thesis: invalidation === "" ? {} : { invalidation: Number(invalidation) }
-  };
-
-  setBanner(null);
-  $("mode-label").textContent = payload.mode === "live" ? "LIVE" : "SIMULATION";
-  $("mode-pill").className = `mode-pill ${payload.mode === "live" ? "live" : "sim"}`;
-
-  try {
-    const response = await fetch("/api/evaluate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    const data = await response.json();
-
-    if (!response.ok) {
-      errorBox.hidden = false;
-      errorBox.textContent = data.detail ?? data.error ?? `request failed (${response.status})`;
-      return;
-    }
-
-    current = data;
-    paintCycle(data);
-    document.querySelector(".book-debate").scrollIntoView({ behavior: "smooth", block: "start" });
-  } catch (error) {
-    errorBox.hidden = false;
-    errorBox.textContent = error.message;
-  } finally {
-    button.disabled = false;
-    button.innerHTML = 'Check this trade <span>↗</span>';
-  }
-}
-
-$("book-form").addEventListener("submit", evaluateOwnBook);
-$("run-modest").addEventListener("click", () => runCycle("modest"));
-$("run-reckless").addEventListener("click", () => runCycle("reckless"));
-$("prov-close").addEventListener("click", closeProvenance);
-$("prov-backdrop").addEventListener("click", (e) => {
-  if (e.target === $("prov-backdrop")) closeProvenance();
-});
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeProvenance();
-});
-$("tamper").addEventListener("click", tamperTest);
-
-loadHealth();
+function serviceMarkup(){return `<section data-view="services" id="services" hidden><section class="panel services-intro"><div class="services-intro-copy"><span class="eyebrow">APEX · EXECUTION FIREWALL</span><h2>Probabilistic reasoning. Deterministic control.</h2><p>APEX lets AI recommend and debate, then makes every proposed action pass through policy, safety and human-approval gates before capital can move.</p></div><div class="services-intro-quote">AI can recommend.<br>AI can debate.<br><b>APEX controls permission.</b></div></section><section class="panel"><div class="panel-head"><div><span class="eyebrow">VISIBLE DECISION PATH</span><h2>From Binance data to an auditable decision</h2></div><span id="service-state" class="status">READY</span></div><div class="pipeline" aria-label="APEX decision pipeline">${['Binance data','Quant','Bull vs Bear','Debate','Route selection','Constitution','Referee','Guardian','Human approval','Audit journal'].map((step,i)=>`<div class="pipeline-step"><span>${String(i+1).padStart(2,'0')}</span><b>${step}</b></div>`).join('')}</div><p class="panel-foot">Execution is a separate boundary. A public dashboard cannot submit orders or expose account credentials.</p></section><section class="panel"><div class="panel-head"><div><span class="eyebrow">APEX SERVICES</span><h2>Every component has one job</h2><p>Bull and Bear reason. The control plane enforces.</p></div><a class="button primary" href="#review">Run a review ↗</a></div><div id="services-grid" class="service-grid">${serviceDefinitions.map(([id,name,type,description])=>`<article class="service-card" data-service="${id}"><div class="service-card-top"><span class="service-type ${type==='AI AGENT'?'agent':''}">${type}</span><span class="service-status" data-service-status="${id}">READY</span></div><h3>${name}</h3><p>${description}</p></article>`).join('')}</div><p class="panel-foot">The UI reports live results from the current review. It does not fabricate model output while idle.</p></section></section>`;}
+function renderServiceBoard({state='READY',bull=null,bear=null,referee=null,guardian=null}={}){const status={quant:state==='DEBATING'?'PACKET READY':'READY',bull:bull?.valid?bull.decision:(state==='DEBATING'?'DEBATING':bull?.failure||'READY'),bear:bear?.valid?bear.decision:(state==='DEBATING'?'DEBATING':bear?.failure||'READY'),debate:state==='DEBATING'?'WAITING':(referee?'COMPLETE':'READY'),portfolio:state==='DEBATING'?'WAITING':(referee?'ROUTE CHECKED':'READY'),constitution:state==='DEBATING'?'WAITING':(referee?'LOADED':'READY'),referee:referee?.verdict||(state==='DEBATING'?'WAITING':'NOT REACHED'),guardian:guardian?.status||(state==='DEBATING'?'WAITING':'NOT REACHED'),executor:guardian?.status==='PASS'&&referee?.verdict==='APPROVE'?'AWAITING HUMAN':'BLOCKED',journal:state==='DEBATING'?'WRITING':(referee?'RECORDED':'READY')};if($('service-state'))$('service-state').textContent=state==='DEBATING'?'LIVE DEBATE':referee?'REVIEW COMPLETE':'READY';Object.entries(status).forEach(([id,value])=>{const node=document.querySelector(`[data-service-status="${id}"]`);if(node){node.textContent=value;node.className=`service-status ${['APPROVE','PASS','RECORDED','ROUTE CHECKED','LOADED'].includes(value)?'good':''} ${['BLOCK','DENY','NOT REACHED','MODEL_UNAVAILABLE'].includes(value)?'bad':''}`;}});}
+function setupServices(){const main=document.querySelector('main');if(!main||document.getElementById('services'))return;main.insertAdjacentHTML('beforeend',serviceMarkup());const nav=document.querySelector('nav[aria-label="Workspace"]');if(nav&&!nav.querySelector('[data-page="services"]'))nav.insertAdjacentHTML('beforeend','<a href="#services" data-page="services">◌ &nbsp; Services</a>');renderServiceBoard();navigate();}
+setupServices();
+const paintWithServices=paint;paint=d=>{paintWithServices(d);renderServiceBoard({state:'COMPLETE',bull:d.bull,bear:d.bear,referee:d.verdict,guardian:d.guardian});};
+$('book-form').addEventListener('submit',()=>renderServiceBoard({state:'DEBATING'}),{capture:true});
+const serviceStyle=document.createElement('style');serviceStyle.textContent=`.services-intro{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(220px,.6fr);gap:30px;padding:26px 22px;background:linear-gradient(120deg,#181a1f,#152019)}.services-intro h2{font-size:25px;margin:5px 0 10px}.services-intro p{max-width:680px;color:var(--muted);font-size:13px}.services-intro-quote{border-left:1px solid var(--accent);padding:4px 0 4px 20px;color:var(--muted);font:12px/2 monospace}.services-intro-quote b{color:var(--accent)}.pipeline{display:flex;gap:0;padding:22px;overflow:auto}.pipeline-step{position:relative;min-width:116px;padding:12px 18px 12px 0;margin-right:24px;border-top:2px solid var(--line)}.pipeline-step:not(:last-child)::after{content:'→';position:absolute;right:-18px;top:20px;color:var(--muted)}.pipeline-step span{display:block;color:var(--accent);font:10px monospace;margin-bottom:10px}.pipeline-step b{display:block;font-size:12px;line-height:1.3}.service-grid{display:grid;grid-template-columns:repeat(2,1fr)}.service-card{padding:20px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-height:154px}.service-card:nth-child(2n){border-right:0}.service-card-top{display:flex;justify-content:space-between;align-items:center;gap:10px}.service-type,.service-status{font:10px monospace;letter-spacing:1px;color:var(--muted)}.service-type.agent{color:var(--accent)}.service-status{border:1px solid var(--line);padding:5px 7px;letter-spacing:0}.service-status.good{color:var(--accent);border-color:#b4ed8055}.service-status.bad{color:var(--red);border-color:#ff9b9855}.service-card h3{margin:17px 0 7px;font-size:16px}.service-card p{color:var(--muted);font-size:12px;max-width:520px}.services-intro+.panel{margin-top:22px}@media(max-width:760px){.services-intro{grid-template-columns:1fr;gap:18px}.service-grid{grid-template-columns:1fr}.service-card{border-right:0}.pipeline{padding:18px 16px}}`;document.head.append(serviceStyle);
+const categoryStyle=document.createElement('style');categoryStyle.textContent=`.opportunity-tables{display:grid;gap:14px;padding:16px 20px 4px}.opportunity-group{border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#111317}.group-head{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;padding:17px 18px;border-bottom:1px solid var(--line);background:linear-gradient(110deg,#15191d,#111317)}.group-head h3{margin:6px 0 4px;font-size:17px}.group-head p{margin:0;color:var(--muted);font-size:11px;line-height:1.5}.group-head .status{min-width:32px;text-align:center}.opportunity-group .table-scroll{max-height:280px}.opportunity-group table{min-width:690px}.opportunity-group td small{display:block;color:var(--muted);font-size:11px}.opportunity-group td:first-child b{font-family:monospace;letter-spacing:.5px}.opportunity-group .button{padding:6px 8px;font-size:10px}.opportunity-group .empty{padding:24px 16px;text-align:left}.opportunity-group:has(button[data-inspect]) .group-head .status{color:var(--accent);border-color:#b4ed8055}@media(max-width:760px){.opportunity-tables{padding:12px 14px 2px}.group-head{padding:14px}.group-head p{max-width:230px}}`;document.head.append(categoryStyle);

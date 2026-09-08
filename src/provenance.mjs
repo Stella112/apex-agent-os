@@ -60,10 +60,11 @@ export function observed({
   thresholds = DEFAULT_FRESHNESS_THRESHOLDS,
   ...extra
 }) {
-  if (value === null || value === undefined) {
+  if (value === null || value === undefined || (typeof value === "number" && !Number.isFinite(value))) {
     return unavailable({ source, reason: extra.reason ?? "no value supplied" });
   }
   const observedMs = typeof observedAt === "number" ? observedAt : Date.parse(observedAt);
+  if (!Number.isFinite(observedMs) || now - observedMs < -MAX_TOLERATED_SKEW_MS) return unavailable({ source, reason: "invalid or future source timestamp" });
   const ageMs = now - observedMs;
   return {
     value,

@@ -1,147 +1,125 @@
-# APEX — Adversarial Portfolio Execution Engine
+# APEX — The Decision Layer Before the Trade
 
-**Let the models fight. Let the math decide.**
+Most trading agents are built to act fast.
 
-Built for the Binance Agent OS Mini Hackathon, Track A.
+APEX is built to make them think twice.
 
----
+APEX is an adversarial decision and risk layer for Binance Agent OS. It scans live Binance markets, finds potential opportunities, brings in news and sentiment, and challenges every idea before it reaches execution.
 
-## Try it
+APEX does not replace Binance Agent OS. Binance Agent OS provides the authenticated Agentic account, live Binance account and market data, and user-confirmed trade execution. APEX works beside it as the independent intelligence, debate, and safety layer.
 
-On Windows, double-click **`start-apex.bat`**. On macOS or Linux, run **`./start-apex.sh`**.
-Your browser opens at <http://127.0.0.1:4173>.
+## What APEX does
 
-If you would rather use a terminal:
+APEX looks across:
 
-```bash
+- Spot markets
+- Perpetuals and futures
+- Meme assets
+- Stock-linked assets
+- Other supported Binance markets
+
+Finding a signal is only the beginning. Every proposal goes through an agent council:
+
+- **Bull** argues why the opportunity could work.
+- **Bear** challenges the thesis and looks for failure points.
+- **Constitution Referee** checks position size, leverage, concentration, loss limits, and liquidation risk.
+- **Guardian** checks evidence freshness, authority, duplicate risk, and execution safety.
+
+The result is not just `BUY` or `SELL`. APEX can approve, resize, deny, or block a proposal—with a clear explanation in plain language.
+
+APEX is MCP-native and can run alongside compatible agents such as Codex, Claude, Cursor, VS Code, ChatGPT, and other agent environments. Users do not need to write JSON or understand internal tool names.
+
+The intended flow is:
+
+`APEX scans → Bull/Bear debate → Referee checks risk → Guardian protects the handoff → Binance Agent OS verifies → user confirms → Binance executes`
+
+APEX never stores Binance API keys, never impersonates a Binance session, never enables withdrawals, and never trades silently. Every non-read action remains supervised and confirmation-gated.
+
+This repository is a reviewable engineering build. Live provider availability, account binding, executable sizing, and write authorization are reported explicitly rather than simulated. See [REQUIREMENTS](REQUIREMENTS.md) and [KNOWN_LIMITATIONS](KNOWN_LIMITATIONS.md).
+
+## APEX products
+
+APEX is a small agent stack, not only a dashboard:
+
+1. **APEX Dashboard** — a live market workspace for the Binance universe,
+   opportunity rankings, news and sentiment evidence, review forms, and visible
+   decision records.
+2. **APEX Binance Council Skill** — the reusable agent instruction package in
+   `skills/apex-binance-council/SKILL.md`. It teaches Codex, Claude, Cursor,
+   ChatGPT, Antigravity, and other compatible agents to call APEX first and
+   keep analysis separate from execution.
+3. **APEX MCP** — the analysis interface with `apex_status`,
+   `apex_find_opportunities`, `apex_news_sentiment`, and `apex_review_trade`.
+4. **APEX Council** — Bull, Bear, the deterministic Constitution Referee, and
+   the independent Guardian safety firewall.
+5. **Binance Skills + Binance MCP companion** — Binance's official account,
+   authorization, balances, positions, and user-confirmed execution layer.
+   APEX does not hold those credentials or impersonate the user's Binance
+   session.
+
+The product flow is:
+
+`APEX Skill → APEX MCP → Bull → Bear → Referee → Guardian → Binance Skill/MCP → user confirmation`
+
+Autopilot is intentionally a separate, opt-in REST path. It requires an explicit Constitution permission, a symbol allowlist, a per-order USDT cap, authenticated account reads, and both runtime write flags. Create `/opt/apex-agent/AUTOPILOT_STOP` on Qevor to block future autopilot orders immediately; existing Binance orders must still be cancelled through Binance separately.
+
+## Run locally
+
+Requires Node 22 or newer. No runtime dependencies.
+
+```
+npm test
+node bin/smoke.mjs
 node server.mjs
 ```
 
-Node.js 18 or newer is the only requirement. There are no dependencies to install, no API keys,
-no account to connect and no build step.
+Default address: http://127.0.0.1:4173 . Use PORT to choose another port. The current review instance uses 4178. Stop a foreground server with Ctrl+C. Do not stop unrelated Node processes.
 
-## What it does
+Copy .env.example to a private .env, configure only the providers you have authorized, and run `node --env-file=.env server.mjs`. Never commit credentials. Ollama Bull and the external Bear must both be configured for live analysis. Missing providers produce an unavailable state, never canned responses. Account figures in the form are manually supplied and are not exchange-verified balances.
 
-Enter your book and the trade you are thinking about. APEX fetches the live Binance price,
-runs your numbers through a deterministic risk engine, and tells you one of three things:
+## Verification and records
 
-- **APPROVE.** The trade sits inside every rule.
-- **RESIZE.** The idea is fine but the size is not, and here is the largest size that works.
-- **DENY.** The resulting portfolio is unacceptable, and here is exactly which rule and by how much.
-
-Every verdict shows the rule, your observed value, the limit, and the arithmetic. Nothing is
-stored, and no account is ever connected.
-
-There are also two worked examples on the page, a modest add and a deliberately reckless one,
-if you want to see both outcomes before entering your own figures.
-
-## Why it exists
-
-Binance Agent OS bounds *where* an agent's funds can go. Agents run in a dedicated sub-account
-with no withdrawal scope at all. What the platform does not bound is *how much* can be lost
-inside that boundary.
-
-APEX is the layer that does. Two agents argue from identical evidence, a deterministic Referee
-simulates the resulting portfolio, and any proposal that breaches the Constitution is refused
-with its arithmetic printed on screen.
-
-The trade can be right and still be unsafe. APEX enforces that distinction in code rather than
-asking a prompt to respect it.
-
-## What the demo shows
-
-1. **Live evidence.** Real Binance market data, each field labelled with its source, its age,
-   and whether it is an exchange reading or an APEX calculation.
-2. **A real disagreement.** Bull and Bear receive the identical evidence packet and reach
-   opposite conclusions. Every claim cites the evidence keys behind it.
-3. **Five scored strategies.** The portfolio router prices carry, reverse carry, directional,
-   park and stand down in basis points, and explains why each loser lost.
-4. **A denial with its arithmetic.** The Referee simulates the post-fill book and names each
-   rule, the observed value and the limit.
-5. **A resize you can act on.** A refusal that cannot tell you what would work is not useful,
-   so the Referee computes the largest compliant size and offers that instead.
-6. **A human gate.** Nothing proceeds until you authorise it.
-7. **A tamper-evident record.** The journal is hash-linked, and the page will edit a past
-   verdict in front of you to prove the chain catches it.
-
-## The honest parts
-
-This project's governing rule is that uncertainty is never silently turned into certainty.
-
-**No liquidation value is ever labelled as coming from Binance.** The maintenance-margin
-brackets come from a published static table rather than the account's live `leverageBracket`
-response, which requires an API key. Every liquidation figure is an `APEX_ESTIMATE` under
-formula `liq-v1` and ships with its six assumptions attached.
-
-**No order is ever submitted.** The Binance MCP endpoint is real and OAuth-gated, verified by a
-direct probe returning `HTTP 401` with a valid RFC 9728 discovery pointer. Its tool names and
-schemas are not published anywhere authoritative. Writing execution code against a guessed
-schema would violate this project's own first rule, so the pipeline stops at your
-authorisation. You place the trade yourself.
-
-**Absence is never rendered as zero.** A book with no liquidation exposure reports
-`UNAVAILABLE`, because those two things mean opposite things.
-
-Full detail in [BINANCE_CAPABILITIES.md](BINANCE_CAPABILITIES.md) and
-[APEX_IMPLEMENTATION_AUDIT.md](APEX_IMPLEMENTATION_AUDIT.md), including two conflicts found
-inside the specification itself and how each was resolved.
-
-## Check it yourself
-
-```bash
-npm test
+```
+node bin/evaluate.mjs
+node bin/record.mjs
+node bin/record.mjs DECISION_ID
 ```
 
-96 tests. The liquidation suite implements acceptance tests A through F, including a
-deterministic comparison at the 15% boundary that does not flip on floating-point drift. The
-adversarial suite covers unsupported evidence, invented indicators, fabricated fills and
-fabricated payments.
+The evaluation is labeled SIMULATION and has no execution capability. The dashboard accepts live analysis only. Decisions persist in APEX_DATA_DIR (default data/decisions). The record command verifies local integrity and emits a sanitized checkpoint export; this is not a full deterministic replay archive.
 
-```bash
-node bin/verify.mjs
+Read [ARCHITECTURE](ARCHITECTURE.md), [VERIFICATION](VERIFICATION.md), [EVALUATION](EVALUATION.md), [DEMO](DEMO.md) and [operations](deploy.md). Older APEX audit documents are historical and do not establish current live capabilities.
+
+Binance MCP remains the supervised Agent OS route. A server-side Binance Spot REST adapter is now present for authenticated account reads, but REST writes and autopilot remain disabled by default until Guardian limits, account binding and fill reconciliation are verified. Official MCP setup: https://developers.binance.com/en/docs/agent-native/mcp-server/agentic .
+
+## APEX as a second MCP server
+
+The official Binance MCP keeps the user's Binance authorization and any
+user-approved execution, while APEX runs beside it as the decision, debate,
+and risk layer.
+
+Install the APEX skill package and add both servers to a supported MCP client:
+
+```text
+codex mcp add binance-mcp-server --url https://agent.binance.com/mcp/agentic
+codex mcp add apex --url https://apexagent.site/mcp
 ```
 
-A verification harness that refuses to report PASS without evidence produced during that run.
-It reports 22 PASS, 0 FAIL, and marks live execution and post-trade reconciliation as unproven,
-because they are.
+The Binance server is the account-aware connector. APEX's /mcp endpoint is
+read-only and provides apex_status, apex_find_opportunities,
+apex_news_sentiment, and apex_review_trade. A user or agent can pass Binance
+MCP market results into apex_review_trade as binance_market_data; APEX labels
+that as caller-supplied evidence and never mistakes it for an authenticated
+account book. APEX does not accept Binance API keys, does not impersonate
+Binance, and does not submit orders.
 
-## Architecture
+The intended flow is:
 
-| Module | Responsibility |
-|---|---|
-| `src/resolver.mjs` | Application-level DNS, so APEX reaches Binance without changing system settings |
-| `src/market.mjs` | Market data adapter over public Binance REST |
-| `src/quant.mjs` | Turns market data and the book into keyed, provenance-wrapped measurements |
-| `src/evidence.mjs` | Rejects any claim citing evidence the packet does not contain |
-| `src/agents.mjs` | Bull, Bear, and the debate router |
-| `src/router.mjs` | Scores five portfolio strategies and explains every rejection |
-| `src/referee.mjs` | Post-fill portfolio simulation and the deterministic verdict |
-| `src/liquidation.mjs` | Liquidation resolution with provenance classification |
-| `src/constitution.mjs` | Policy loading, validation and SHA-256 identity |
-| `src/journal.mjs` | Append-only hash-linked audit journal |
-| `src/validate.mjs` | Strict validation of anything a visitor types |
-| `src/cycle.mjs` | The full decision pipeline |
+Binance MCP authorization → Binance MCP market/account data → APEX MCP debate + Constitution + Guardian → user-approved action in Binance MCP
 
-Bull and Bear are deterministic reasoners behind a `ModelProvider` seam. That is deliberate:
-the demo runs with no API key and a judge can reproduce every argument exactly. Substituting a
-language model is a change to `src/agents.mjs` alone, and the evidence validator applies either
-way.
+The APEX skill package is the reusable orchestration layer. The official
+Binance Skills Hub remains the companion for Binance-native wallet actions;
+install it from Binance's documentation when the client supports Skills CLI.
 
-## Safety model
-
-- No withdrawal scope exists on the platform, and APEX adds no path to one.
-- The Constitution is refused at load time if it permits withdrawals or disables human
-  confirmation.
-- Every verdict records the Constitution's id, version and hash, so a historical decision stays
-  bound to the exact policy that produced it.
-- Stale or expired evidence halts the cycle before any agent is consulted.
-- Denials are first-class output, recorded with the same detail as approvals.
-- Nothing a visitor types is stored anywhere.
-
-## Deploying
-
-See [deploy.md](deploy.md). A Dockerfile is included.
-
----
-
-Prototype built for a hackathon. Not financial advice. No live trading capability.
+On Vercel, configure the model providers required by apex_review_trade
+separately. The public MCP remains safe when providers are unavailable: it
+returns an explicit unavailable result rather than a canned verdict.

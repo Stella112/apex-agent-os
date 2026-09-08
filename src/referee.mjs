@@ -87,6 +87,17 @@ function money(value) {
 // Returns { verdict, checks, simulation }. Verdict is APPROVE, RESIZE or DENY.
 // Checks are ordered and each carries the numbers that produced it.
 export function judge({ book, marks, candidate, thesis, policy = POLICY }) {
+  const finite = (v) => typeof v === "number" && Number.isFinite(v);
+  const invalid = !book || !Array.isArray(book.positions) || !finite(book.walletBalance) || book.walletBalance < 0 ||
+    !candidate || !["LONG", "SHORT"].includes(candidate.side) || !finite(candidate.qty) || candidate.qty <= 0 ||
+    !finite(candidate.entryPrice) || candidate.entryPrice <= 0 || !finite(marks?.[candidate.symbol]) || marks[candidate.symbol] <= 0 ||
+    book.positions.some(p => !finite(p.qty) || !finite(p.entryPrice) || p.entryPrice <= 0 || !finite(marks?.[p.symbol]) || marks[p.symbol] <= 0) ||
+    (book.sessionOpeningEquity != null && (!finite(book.sessionOpeningEquity) || book.sessionOpeningEquity <= 0)) ||
+    ["minConfidence", "maxDailyLoss", "minLiquidationDistance", "maxRiskPerThesis", "maxSymbolConcentration", "maxGrossLeverage", "toxicFlowThreshold"].some(k => !finite(policy?.[k]) || policy[k] < 0);
+  if (invalid || !finite(equity(book, marks)) || equity(book, marks) <= 0) {
+    const check = { rule: "INVALID_INPUT", passed: false, severity: "DENY", detail: "Complete finite prices, positive equity and quantity, and valid policy are required.", numbers: {} };
+    return { verdict: "DENY", checks: [check], hardFailures: [check], softFailures: [], simulation: {}, sizeHaircut: 0 };
+  }
   const checks = [];
   const marksAfter = { ...marks };
   const after = applyCandidate(book, candidate);
@@ -163,7 +174,7 @@ export function judge({ book, marks, candidate, thesis, policy = POLICY }) {
     const perUnitLoss = Math.abs(candidate.entryPrice - thesis.invalidation);
     riskFraction = (perUnitLoss * candidate.qty) / equityAfter;
   }
-  const riskPassed = riskFraction === null || riskFraction <= policy.maxRiskPerThesis;
+  const riskPassed = riskFraction !== null && Number.isFinite(riskFraction) && riskFraction <= policy.maxRiskPerThesis;
   record(
     "RISK_BUDGET",
     riskPassed,

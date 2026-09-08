@@ -12,8 +12,58 @@ import { getJsonViaResolver } from "./resolver.mjs";
 
 const SPOT = "https://api.binance.com";
 const FUTURES = "https://fapi.binance.com";
+let fundingSchedulePromise, fundingScheduleUntil = 0;
+async function fundingInterval(symbol) {
+  if (!fundingSchedulePromise || Date.now() > fundingScheduleUntil) {
+    fundingScheduleUntil = Date.now() + 300_000;
+    fundingSchedulePromise = getJson(`${FUTURES}/fapi/v1/fundingInfo`).catch(() => { fundingScheduleUntil = 0; return null; });
+  }
+  const schedules = await fundingSchedulePromise;
+  if (!Array.isArray(schedules)) return null;
+  return schedules.find(row => row.symbol === symbol)?.fundingIntervalHours ?? 8;
+}
 
-async function getJson(url, { timeoutMs = 15000, attempts = 3 } = {}) {
+// Select liquid USDT spot candidates; detailed reads verify their perpetual.
+// This keeps a universe scan useful
+// without launching hundreds of heavyweight market reads at once.
+export async function fetchTradableSymbols(limit = 24) {
+  // MINI avoids the oversized exchangeInfo payload. Volume is a screening
+  // signal, not proof of account eligibility or current instrument status.
+  const tickers = await getJson(`${SPOT}/api/v3/ticker/24hr?type=MINI`);
+  return (Array.isArray(tickers) ? tickers : [])
+    .filter((ticker) => {
+      const symbol = String(ticker.symbol ?? "");
+      const volume = Number(ticker.quoteVolume);
+      return symbol.endsWith("USDT") && !['USDCUSDT','FDUSDUSDT','TUSDUSDT','USDPUSDT','DAIUSDT','USD1USDT'].includes(symbol) && Number.isFinite(volume) && volume > 0;
+    })
+    .sort((a, b) => Number(b.quoteVolume) - Number(a.quoteVolume))
+    .slice(0, limit == null ? undefined : limit)
+    .map((ticker) => ticker.symbol);
+}
+
+export async function fetchBinanceUniverse() {
+  const [spot, futures] = await Promise.all([
+    getJson(`${SPOT}/api/v3/ticker/24hr?type=MINI`),
+    getJson(`${FUTURES}/fapi/v1/ticker/24hr`).catch(() => [])
+  ]);
+  const markets = [];
+  const quoteAssets = ["USDT", "USDC", "FDUSD", "BUSD", "BTC", "ETH", "BNB", "TRY", "EUR", "BRL", "AUD"];
+  const assetParts = (symbol) => {
+    const quote = quoteAssets.find((candidate) => symbol.endsWith(candidate));
+    return { baseAsset: quote ? symbol.slice(0, -quote.length) : symbol, quoteAsset: quote ?? "UNKNOWN" };
+  };
+  for (const item of spot ?? []) {
+    if (!item.symbol) continue;
+    markets.push({ symbol: item.symbol, market: "SPOT", ...assetParts(item.symbol) });
+  }
+  for (const item of futures ?? []) {
+    if (!item.symbol) continue;
+    markets.push({ symbol: item.symbol, market: "USDⓈ-M FUTURES", ...assetParts(item.symbol) });
+  }
+  return [...new Map(markets.map((item) => [`${item.market}:${item.symbol}`, item])).values()];
+}
+
+async function getJson(url, { timeoutMs = 6000, attempts = 1 } = {}) {
   let lastError;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
@@ -38,7 +88,7 @@ export function orderBookImbalance(book, depth = 20) {
   const bids = sum(book.bids);
   const asks = sum(book.asks);
   const total = bids + asks;
-  if (total === 0) return 0;
+  if (!Number.isFinite(total) || total <= 0) return null;
   return (bids - asks) / total;
 }
 
@@ -46,7 +96,7 @@ export function orderBookImbalance(book, depth = 20) {
 // candle interval. Used as a sizing input, never as a signal on its own.
 export function realizedVolatility(klines, periodsPerYear) {
   const closes = klines.map((k) => Number(k[4]));
-  if (closes.length < 3) return 0;
+  if (closes.length < 3 || closes.some(v => !Number.isFinite(v) || v <= 0)) return null;
   const returns = [];
   for (let i = 1; i < closes.length; i += 1) {
     returns.push(Math.log(closes[i] / closes[i - 1]));
@@ -61,7 +111,7 @@ export function realizedVolatility(klines, periodsPerYear) {
 // that traded through the passive side, bucketed. This is one input among
 // several and is never the headline of a thesis.
 export function flowToxicity(trades) {
-  if (!trades.length) return 0;
+  if (!trades.length) return null;
   let buyVolume = 0;
   let sellVolume = 0;
   for (const trade of trades) {
@@ -71,25 +121,33 @@ export function flowToxicity(trades) {
     else buyVolume += qty;
   }
   const total = buyVolume + sellVolume;
-  if (total === 0) return 0;
+  if (!Number.isFinite(total) || total <= 0) return null;
   // Imbalance of aggressor flow, mapped to [0, 1]. A one-sided tape is toxic
   // to the resting side and is the condition worth sizing down into.
   return Math.abs(buyVolume - sellVolume) / total;
 }
 
 export async function fetchMarketContext(symbol = "BTCUSDT") {
-  const [ticker, premium, depth, klines, trades, openInterest] = await Promise.all([
+  const [ticker, premium, depth, rawKlines, trades, openInterest, fundingIntervalHours] = await Promise.all([
     getJson(`${SPOT}/api/v3/ticker/24hr?symbol=${symbol}`),
     getJson(`${FUTURES}/fapi/v1/premiumIndex?symbol=${symbol}`),
     getJson(`${SPOT}/api/v3/depth?symbol=${symbol}&limit=100`),
-    getJson(`${SPOT}/api/v3/klines?symbol=${symbol}&interval=1h&limit=168`),
+    getJson(`${SPOT}/api/v3/klines?symbol=${symbol}&interval=1h&limit=169`),
     getJson(`${SPOT}/api/v3/trades?symbol=${symbol}&limit=500`),
-    getJson(`${FUTURES}/fapi/v1/openInterest?symbol=${symbol}`, { attempts: 2 }).catch(() => null)
+    getJson(`${FUTURES}/fapi/v1/openInterest?symbol=${symbol}`, { attempts: 2 }).catch(() => null),
+    fundingInterval(symbol)
   ]);
+  if (ticker.symbol !== symbol || premium.symbol !== symbol || (openInterest && openInterest.symbol !== symbol)) throw new Error("Market instrument mismatch");
+  if (!Array.isArray(rawKlines) || !Array.isArray(trades) || !depth.bids?.length || !depth.asks?.length) throw new Error("Incomplete market response");
+  const now = Date.now();
+  const klines = rawKlines.filter(k => Number(k[6]) <= now);
+  if (klines.some((k,i) => i && Number(k[0]) - Number(klines[i-1][0]) !== 3_600_000)) throw new Error("Candle sequence is duplicate or incomplete");
+  if (trades.some(t => !Number.isFinite(Number(t.qty)) || Number(t.qty) <= 0 || typeof t.isBuyerMaker !== "boolean")) throw new Error("Invalid trade sample");
 
   const markPrice = Number(premium.markPrice);
   const lastPrice = Number(ticker.lastPrice);
   const fundingRate = Number(premium.lastFundingRate);
+  if (![markPrice, lastPrice, Number(premium.indexPrice)].every(v => Number.isFinite(v) && v > 0) || !Number.isFinite(fundingRate)) throw new Error("Invalid market prices or funding");
 
   const closes = klines.map((k) => Number(k[4]));
   const highs = klines.map((k) => Number(k[2]));
@@ -101,7 +159,7 @@ export async function fetchMarketContext(symbol = "BTCUSDT") {
   };
   const range7d = { high: Math.max(...highs), low: Math.min(...lows) };
 
-  const sma = (n) => closes.slice(-n).reduce((a, b) => a + b, 0) / n;
+  const sma = (n) => closes.length < n ? null : closes.slice(-n).reduce((a, b) => a + b, 0) / n;
 
   return {
     symbol,
@@ -113,6 +171,7 @@ export async function fetchMarketContext(symbol = "BTCUSDT") {
     priceChangePercent: Number(ticker.priceChangePercent),
     volume24h: Number(ticker.quoteVolume),
     fundingRate,
+    fundingIntervalHours,
     nextFundingTime: premium.nextFundingTime,
     openInterest: openInterest ? Number(openInterest.openInterest) : null,
     orderBookImbalance: orderBookImbalance(depth),

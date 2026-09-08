@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+data/
+node_modules/
+.git/
+.codex/
+.agents/
+*.pem
+deploy-qevor.ps1
+ecosystem.apex.config.cjs

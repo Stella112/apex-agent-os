@@ -9,4 +9,7 @@ credentials.json
 Thumbs.db
 *.log
 coverage/
+data/
+artifacts/
+!.env.example
 apex-demo-output.txt

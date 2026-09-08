@@ -21,6 +21,7 @@ routing:
 
 execution:
   require_human_confirmation: true
+  autonomous_execution_allowed: false
 
 data:
   fresh_ms: 2000

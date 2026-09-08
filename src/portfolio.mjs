@@ -63,6 +63,9 @@ export function applyCandidate(book, candidate) {
   }
 
   // Reducing or flipping.
+  // Realize P&L on the closed portion before changing/removing its entry.
+  const closedQty = Math.min(Math.abs(existing.qty), Math.abs(signedQty));
+  next.walletBalance += closedQty * Math.sign(existing.qty) * (candidate.entryPrice - existing.entryPrice);
   if (combined === 0) {
     next.positions = next.positions.filter((p) => p.symbol !== candidate.symbol);
     return next;
