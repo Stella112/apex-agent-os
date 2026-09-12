@@ -17,7 +17,7 @@ import { runCycle } from "./src/cycle.mjs";
 import { verifyJournal } from "./src/journal.mjs";
 import { loadConstitution, stamp } from "./src/constitution.mjs";
 import { configureResolver, probeReachability } from "./src/resolver.mjs";
-import { fetchBinanceUniverse, fetchMarketContext, fetchTradableSymbols } from "./src/market.mjs";
+import { fetchBinanceUniverse, fetchMarketContext, fetchMarketContexts, fetchTradableSymbols } from "./src/market.mjs";
 import { buildQuantPacket } from "./src/quant.mjs";
 import { CLASSIFICATION } from "./src/provenance.mjs";
 import { PROPOSALS, deskBook, deskThesis } from "./fixtures/desk.mjs";
@@ -311,13 +311,7 @@ async function mcpFindOpportunities(args) {
     ? mcpSymbols(args, 12)
     : await fetchTradableSymbols(12);
   configureResolver();
-  const reads = await Promise.all(symbols.map(async (symbol) => {
-    try {
-      return { symbol, context: await fetchMarketContext(symbol) };
-    } catch (error) {
-      return { symbol, error: error.message };
-    }
-  }));
+  const reads = await fetchMarketContexts(symbols);
   const contexts = reads.filter((read) => read.context).map((read) => read.context);
   return {
     fetched_at: new Date().toISOString(),
@@ -640,15 +634,7 @@ async function handleApi(url, response, request) {
     }
 
     configureResolver();
-    const reads = await Promise.all(
-      symbols.map(async (symbol) => {
-        try {
-          return { symbol, context: await fetchMarketContext(symbol) };
-        } catch (error) {
-          return { symbol, error: error.message };
-        }
-      })
-    );
+    const reads = await fetchMarketContexts(symbols);
     const contexts = reads.filter((read) => read.context).map((read) => read.context);
     sendJson(response, contexts.length ? 200 : 503, {
       fetched_at: new Date().toISOString(),

@@ -2,6 +2,19 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { BinanceRestClient } from "../src/binance-rest.mjs";
+import { rankTradableTickers, tickerLiquidity } from "../src/market.mjs";
+
+test("market sampling tolerates Binance ticker volume variants", () => {
+  assert.equal(tickerLiquidity({ volume: "2", lastPrice: "100" }), 200);
+  assert.deepEqual(
+    rankTradableTickers([
+      { symbol: "ETHUSDT", volume: "1", lastPrice: "100" },
+      { symbol: "USDCUSDT", quoteVolume: "999999" },
+      { symbol: "BTCUSDT", quoteVolume: "500" }
+    ], 2),
+    ["BTCUSDT", "ETHUSDT"]
+  );
+});
 
 test("REST account reads sign requests without exposing the secret", async () => {
   let requestedUrl;

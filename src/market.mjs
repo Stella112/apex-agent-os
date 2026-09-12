@@ -23,22 +23,44 @@ async function fundingInterval(symbol) {
   return schedules.find(row => row.symbol === symbol)?.fundingIntervalHours ?? 8;
 }
 
-// Select liquid USDT spot candidates; detailed reads verify their perpetual.
-// This keeps a universe scan useful
-// without launching hundreds of heavyweight market reads at once.
-export async function fetchTradableSymbols(limit = 24) {
-  // MINI avoids the oversized exchangeInfo payload. Volume is a screening
-  // signal, not proof of account eligibility or current instrument status.
-  const tickers = await getJson(`${SPOT}/api/v3/ticker/24hr?type=MINI`);
+const STABLE_PAIRS = new Set(['USDCUSDT', 'FDUSDUSDT', 'TUSDUSDT', 'USDPUSDT', 'DAIUSDT', 'USD1USDT']);
+
+// Binance has returned more than one 24h ticker shape over time. In
+// particular, some MINI responses omit quoteVolume even though they still
+// include base volume and a last/close price. Keep the screening step
+// tolerant: this is only a sample selector, not an account or eligibility
+// check.
+export function tickerLiquidity(ticker) {
+  const quoteVolume = Number(ticker?.quoteVolume ?? ticker?.quoteAssetVolume);
+  if (Number.isFinite(quoteVolume) && quoteVolume > 0) return quoteVolume;
+  const baseVolume = Number(ticker?.volume ?? ticker?.baseVolume);
+  const price = Number(ticker?.lastPrice ?? ticker?.close);
+  if (Number.isFinite(baseVolume) && baseVolume > 0 && Number.isFinite(price) && price > 0) {
+    return baseVolume * price;
+  }
+  return 0;
+}
+
+export function rankTradableTickers(tickers, limit = 24) {
   return (Array.isArray(tickers) ? tickers : [])
     .filter((ticker) => {
-      const symbol = String(ticker.symbol ?? "");
-      const volume = Number(ticker.quoteVolume);
-      return symbol.endsWith("USDT") && !['USDCUSDT','FDUSDUSDT','TUSDUSDT','USDPUSDT','DAIUSDT','USD1USDT'].includes(symbol) && Number.isFinite(volume) && volume > 0;
+      const symbol = String(ticker?.symbol ?? '').toUpperCase();
+      return /^[A-Z0-9._-]+USDT$/.test(symbol) && !STABLE_PAIRS.has(symbol);
     })
-    .sort((a, b) => Number(b.quoteVolume) - Number(a.quoteVolume))
+    .map((ticker, index) => ({ ticker, index, symbol: String(ticker.symbol).toUpperCase(), liquidity: tickerLiquidity(ticker) }))
+    .sort((a, b) => b.liquidity - a.liquidity || a.index - b.index)
     .slice(0, limit == null ? undefined : limit)
-    .map((ticker) => ticker.symbol);
+    .map(({ symbol }) => symbol);
+}
+
+// Select liquid USDT spot candidates; detailed reads verify their perpetual.
+// This keeps a universe scan useful without launching hundreds of heavyweight
+// market reads at once. If Binance omits volume in a MINI response, the
+// fallback still returns valid USDT symbols instead of producing an invalid
+// empty-symbol request.
+export async function fetchTradableSymbols(limit = 24) {
+  const tickers = await getJson(`${SPOT}/api/v3/ticker/24hr?type=MINI`);
+  return rankTradableTickers(tickers, limit);
 }
 
 export async function fetchBinanceUniverse() {
@@ -169,7 +191,7 @@ export async function fetchMarketContext(symbol = "BTCUSDT") {
     markPrice,
     indexPrice: Number(premium.indexPrice),
     priceChangePercent: Number(ticker.priceChangePercent),
-    volume24h: Number(ticker.quoteVolume),
+    volume24h: tickerLiquidity(ticker),
     fundingRate,
     fundingIntervalHours,
     nextFundingTime: premium.nextFundingTime,
@@ -184,4 +206,26 @@ export async function fetchMarketContext(symbol = "BTCUSDT") {
     range24h,
     range7d
   };
+}
+
+// Read a bounded number of symbols at a time. A 24-symbol scan fans out to
+// several Binance endpoints per symbol; Promise.all over the full list can
+// trigger transient rate limits or serverless timeouts.
+export async function fetchMarketContexts(symbols, concurrency = 4) {
+  const reads = Array(symbols.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < symbols.length) {
+      const index = next++;
+      const symbol = symbols[index];
+      try {
+        reads[index] = { symbol, context: await fetchMarketContext(symbol) };
+      } catch (error) {
+        reads[index] = { symbol, error: error.message };
+      }
+    }
+  };
+  const workerCount = Math.min(Math.max(1, concurrency), symbols.length);
+  await Promise.all(Array.from({ length: workerCount }, worker));
+  return reads;
 }
