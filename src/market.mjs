@@ -12,6 +12,7 @@ import { getJsonViaResolver } from "./resolver.mjs";
 
 const SPOT = "https://api.binance.com";
 const FUTURES = "https://fapi.binance.com";
+const BSTOCKS = "https://www.binance.com/bapi/defi/v1/public/wallet-direct/buw/wallet/market/token/rwa/stock/detail/list/ai?type=3";
 let fundingSchedulePromise, fundingScheduleUntil = 0;
 async function fundingInterval(symbol) {
   if (!fundingSchedulePromise || Date.now() > fundingScheduleUntil) {
@@ -61,6 +62,24 @@ export function rankTradableTickers(tickers, limit = 24) {
 export async function fetchTradableSymbols(limit = 24) {
   const tickers = await getJson(`${SPOT}/api/v3/ticker/24hr?type=MINI`);
   return rankTradableTickers(tickers, limit);
+}
+
+export function normalizeBstockProducts(payload) {
+  if (payload?.code !== "000000" || !Array.isArray(payload.data)) return [];
+  return payload.data
+    .filter((item) => item?.type === 3 && item.symbol && item.ticker && item.contractAddress)
+    .map((item) => ({
+      symbol: String(item.symbol),
+      ticker: String(item.ticker),
+      contractAddress: String(item.contractAddress),
+      chainId: String(item.chainId ?? ""),
+      quoteSymbol: String(item.cs ?? `${item.symbol}USDT`),
+      lastUpdatedAt: item.lastUpdateTime ? new Date(Number(item.lastUpdateTime)).toISOString() : null
+    }));
+}
+
+export async function fetchBstockProducts() {
+  return normalizeBstockProducts(await getJson(BSTOCKS));
 }
 
 export async function fetchBinanceUniverse() {

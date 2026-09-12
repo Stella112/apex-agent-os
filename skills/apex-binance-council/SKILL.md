@@ -17,6 +17,12 @@ Futures markets; checking funding, trend structure, volatility, liquidity,
 order-book context, and recent matched news; reviewing a proposed trade; and
 producing an evidence-backed decision record.
 
+For Binance tokenized stocks (bStocks), use the bundled Binance Agentic Wallet
+skill for the verified bStock directory, quotes, account checks, and execution.
+Treat bStocks as tokenized products, not conventional equities. The APEX
+dashboard may display verified bStock metadata separately, but its current
+crypto opportunity scoring and portfolio review models do not apply to bStocks.
+
 ## Plain-language interface
 
 Users should not need to know APEX tool names, JSON, symbols lists, or the

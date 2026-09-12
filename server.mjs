@@ -17,7 +17,7 @@ import { runCycle } from "./src/cycle.mjs";
 import { verifyJournal } from "./src/journal.mjs";
 import { loadConstitution, stamp } from "./src/constitution.mjs";
 import { configureResolver, probeReachability } from "./src/resolver.mjs";
-import { fetchBinanceUniverse, fetchMarketContext, fetchMarketContexts, fetchTradableSymbols } from "./src/market.mjs";
+import { fetchBinanceUniverse, fetchBstockProducts, fetchMarketContext, fetchMarketContexts, fetchTradableSymbols } from "./src/market.mjs";
 import { buildQuantPacket } from "./src/quant.mjs";
 import { CLASSIFICATION } from "./src/provenance.mjs";
 import { PROPOSALS, deskBook, deskThesis } from "./fixtures/desk.mjs";
@@ -609,6 +609,22 @@ async function handleApi(url, response, request) {
       });
     } catch (error) {
       sendJson(response, 503, { error: "UNIVERSE_UNAVAILABLE", detail: error.message });
+    }
+    return true;
+  }
+
+  if (url.pathname === "/api/bstocks") {
+    try {
+      const products = await fetchBstockProducts();
+      sendJson(response, 200, {
+        fetched_at: new Date().toISOString(),
+        count: products.length,
+        products,
+        source: "binance-public-rwa-feed",
+        note: "Verified Binance bStock products. APEX does not score or execute these listings; use Binance Agentic Wallet or Binance MCP for quotes and user-confirmed orders."
+      });
+    } catch (error) {
+      sendJson(response, 503, { error: "BSTOCKS_UNAVAILABLE", detail: error.message, products: [] });
     }
     return true;
   }

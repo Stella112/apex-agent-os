@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { BinanceRestClient } from "../src/binance-rest.mjs";
-import { rankTradableTickers, tickerLiquidity } from "../src/market.mjs";
+import { normalizeBstockProducts, rankTradableTickers, tickerLiquidity } from "../src/market.mjs";
 
 test("market sampling tolerates Binance ticker volume variants", () => {
   assert.equal(tickerLiquidity({ volume: "2", lastPrice: "100" }), 200);
@@ -13,6 +13,13 @@ test("market sampling tolerates Binance ticker volume variants", () => {
       { symbol: "BTCUSDT", quoteVolume: "500" }
     ], 2),
     ["BTCUSDT", "ETHUSDT"]
+  );
+});
+
+test("bStock products stay verified and separate from scored market routes", () => {
+  assert.deepEqual(
+    normalizeBstockProducts({ code: "000000", data: [{ type: 3, symbol: "NVDAB", ticker: "NVDA", cs: "NVDABUSDT", chainId: 56, contractAddress: "0xabc", lastUpdateTime: 1789012513889 }, { type: 1, symbol: "NVDAon", ticker: "NVDA", contractAddress: "0xdef" }] }),
+           [{ symbol: "NVDAB", ticker: "NVDA", contractAddress: "0xabc", chainId: "56", quoteSymbol: "NVDABUSDT", lastUpdatedAt: "2026-09-10T03:55:13.889Z" }]
   );
 });
 

@@ -53,9 +53,10 @@ APEX is a small agent stack, not only a dashboard:
 4. **APEX Council** — Bull, Bear, the deterministic Constitution Referee, and
    the independent Guardian safety firewall.
 5. **Binance Skills + Binance MCP companion** — Binance's official account,
-   authorization, balances, positions, and user-confirmed execution layer.
-   APEX does not hold those credentials or impersonate the user's Binance
-   session.
+   authorization, balances, positions, bStocks, and user-confirmed execution
+   layer. The official Binance Agentic Wallet skill is included at
+   `skills/binance-agentic-wallet/`; APEX does not hold those credentials or
+   impersonate the user's Binance session.
 
 The product flow is:
 
@@ -117,8 +118,11 @@ The intended flow is:
 Binance MCP authorization → Binance MCP market/account data → APEX MCP debate + Constitution + Guardian → user-approved action in Binance MCP
 
 The APEX skill package is the reusable orchestration layer. The official
-Binance Skills Hub remains the companion for Binance-native wallet actions;
-install it from Binance's documentation when the client supports Skills CLI.
+Binance Skills Hub companion is included in this repository for Binance-native
+wallet actions and verified bStock product discovery. APEX displays bStocks as
+their own verified product directory; it does not invent opportunity scores for
+them or execute trades. Use Binance Agentic Wallet or Binance MCP for quotes,
+account checks and user-confirmed execution.
 
 On Vercel, configure the model providers required by apex_review_trade
 separately. The public MCP remains safe when providers are unavailable: it
